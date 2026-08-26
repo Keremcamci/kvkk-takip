@@ -37,3 +37,29 @@ def parse_karar_listesi(html: str) -> list[dict]:
             "ozet_ham": baslik,
         })
     return kararlar
+
+
+def fetch_page(url: str = KVKK_LIST_URL, timeout: int = 15) -> str:
+    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+    response.raise_for_status()
+    return response.text
+
+
+def scrape_and_store(conn, url: str = KVKK_LIST_URL) -> int:
+    html = fetch_page(url)
+    kararlar = parse_karar_listesi(html)
+    yeni_sayisi = 0
+    for karar in kararlar:
+        if db.insert_karar_if_new(conn, kaynak="kvkk", **karar):
+            yeni_sayisi += 1
+    return yeni_sayisi
+
+
+if __name__ == "__main__":
+    connection = db.get_connection()
+    db.init_db(connection)
+    yeni_sayisi = scrape_and_store(connection)
+    print(f"{yeni_sayisi} yeni karar bulundu.")
+    for karar in db.get_pending_kararlar(connection):
+        print(f"- [{karar['tarih']}] {karar['baslik'][:100]}...")
+    connection.close()
