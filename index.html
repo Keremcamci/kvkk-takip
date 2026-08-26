@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>KVKK Mevzuat Takip</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  .uyari { background: #fff3cd; border: 1px solid #ffe69c; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.9rem; margin-bottom: 1rem; }
+  .ust-satir { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+  select { font-size: 1rem; padding: 0.3rem; }
+  .son-guncelleme { font-size: 0.85rem; color: #555; }
+  .karar { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+  .karar h3 { margin: 0 0 0.4rem 0; font-size: 1.05rem; }
+  .tarih { color: #666; font-size: 0.85rem; }
+  .aciliyet { display: inline-block; background: #d32f2f; color: #fff; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 3px; margin-left: 0.5rem; }
+  .yapilmasi-gerekenler { margin: 0.5rem 0 0 0; padding-left: 1.2rem; }
+  .bos { color: #666; font-style: italic; }
+  a.kaynak-link { font-size: 0.85rem; }
+</style>
+</head>
+<body>
+  <div class="uyari">
+    Bu araç hukuki tavsiye değildir, bilgi amaçlıdır. Kararlar için resmi kaynağı ve/veya bir avukatı kontrol edin.
+  </div>
+  <h1>KVKK Mevzuat Takip</h1>
+  <div class="ust-satir">
+    <label>
+      Şirket profili:
+      <select id="profil">
+        <option value="genel">Genel</option>
+        <option value="e-ticaret">E-ticaret</option>
+        <option value="finans">Finans</option>
+        <option value="saglik">Sağlık</option>
+        <option value="egitim">Eğitim</option>
+      </select>
+    </label>
+    <span class="son-guncelleme" id="son-guncelleme"></span>
+  </div>
+  <div id="liste"></div>
+
+  <script>
+    const profilSelect = document.getElementById("profil");
+    const liste = document.getElementById("liste");
+    const sonGuncellemeEl = document.getElementById("son-guncelleme");
+
+    function esc(str) {
+      const div = document.createElement("div");
+      div.textContent = str ?? "";
+      return div.innerHTML;
+    }
+
+    function formatTarih(iso) {
+      if (!iso) return null;
+      const d = new Date(iso);
+      if (isNaN(d)) return iso;
+      return d.toLocaleString("tr-TR");
+    }
+
+    function kararKart(karar) {
+      const aciliyetHtml = karar.aciliyet_var
+        ? `<span class="aciliyet" title="${esc(karar.aciliyet_aciklama)}">Aciliyet</span>`
+        : "";
+      const maddeler = (karar.yapilmasi_gerekenler || [])
+        .map((m) => `<li>${esc(m)}</li>`)
+        .join("");
+      return `
+        <div class="karar">
+          <h3>${esc(karar.baslik)}${aciliyetHtml}</h3>
+          <div class="tarih">${esc(karar.tarih)}</div>
+          <p>${esc(karar.ozet)}</p>
+          ${maddeler ? `<ul class="yapilmasi-gerekenler">${maddeler}</ul>` : ""}
+          <a class="kaynak-link" href="${karar.kaynak_url}" target="_blank" rel="noopener">Kaynağı gör</a>
+        </div>
+      `;
+    }
+
+    async function yukle() {
+      const profil = profilSelect.value;
+      const res = await fetch(`/api/kararlar?profil=${encodeURIComponent(profil)}`);
+      const veri = await res.json();
+      const sonGuncelleme = formatTarih(veri.son_guncelleme);
+      sonGuncellemeEl.textContent = sonGuncelleme
+        ? `Son güncelleme: ${sonGuncelleme}`
+        : "Henüz veri yok";
+      if (!veri.kararlar || veri.kararlar.length === 0) {
+        liste.innerHTML = '<p class="bos">Bu profil için henüz karar yok.</p>';
+        return;
+      }
+      liste.innerHTML = veri.kararlar.map(kararKart).join("");
+    }
+
+    profilSelect.addEventListener("change", yukle);
+    yukle();
+  </script>
+</body>
+</html>
