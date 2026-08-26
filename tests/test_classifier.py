@@ -95,7 +95,7 @@ def test_classify_karar_does_not_retry_non_retryable_error():
 def test_classify_pending_updates_db_on_success(conn):
     db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01", kaynak_url="https://example.com/1", ozet_ham="Karar")
     client = FakeClient([_success_response()])
-    sonuc = classifier.classify_pending(conn, client=client, model="model")
+    sonuc = classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
     assert sonuc == {"basarili": 1, "basarisiz": 0, "kalici_hata": 0}
     assert db.get_pending_kararlar(conn) == []
 
@@ -105,7 +105,7 @@ def test_classify_pending_marks_permanent_failure_after_max_deneme(conn):
 
     for _ in range(3):
         client = FakeClient([FakeAPIError(429), FakeAPIError(429), FakeAPIError(429)])
-        classifier.classify_pending(conn, client=client, model="model")
+        classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
 
     assert db.get_pending_kararlar(conn) == []
     row = conn.execute("SELECT islendi_mi, deneme_sayisi FROM kararlar").fetchone()

@@ -88,7 +88,7 @@ def classify_karar(client, baslik, tarih, ozet_ham, model, sleep_fn=time.sleep) 
     raise RuntimeError(f"Sınıflandırma başarısız: {son_hata}")
 
 
-def classify_pending(conn, client=None, model=None) -> dict:
+def classify_pending(conn, client=None, model=None, sleep_fn=time.sleep) -> dict:
     client = client or _get_client()
     model = model or _get_model()
     sonuc = {"basarili": 0, "basarisiz": 0, "kalici_hata": 0}
@@ -96,6 +96,7 @@ def classify_pending(conn, client=None, model=None) -> dict:
         try:
             classification = classify_karar(
                 client, karar["baslik"], karar["tarih"], karar["ozet_ham"], model,
+                sleep_fn=sleep_fn,
             )
             db.update_karar_classification(
                 conn,
