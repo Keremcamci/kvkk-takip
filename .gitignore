@@ -1,1 +1,8 @@
 .worktrees/
+venv/
+__pycache__/
+*.pyc
+kvkk.db
+.env
+.pytest_cache/
+.DS_Store
