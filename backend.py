@@ -46,7 +46,7 @@ def run_scrape() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="KVKK Mevzuat Takip Aracı")
     parser.add_argument("--scrape", action="store_true", help="Scrape + sınıflandırma pipeline'ını çalıştır")
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--port", type=int, default=5001)
     args = parser.parse_args()
 
     if args.scrape:

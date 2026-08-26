@@ -25,7 +25,7 @@ python backend.py --scrape
 
 # 2. Web arayüzünü başlat
 python backend.py
-# http://localhost:5000 adresini aç
+# http://localhost:5001 adresini aç
 ```
 
 ## Test
