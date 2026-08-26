@@ -102,3 +102,15 @@ def test_get_son_guncelleme_returns_none_when_empty(conn):
 def test_get_son_guncelleme_returns_timestamp_after_insert(conn):
     db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01", kaynak_url="https://example.com/7", ozet_ham="x")
     assert db.get_son_guncelleme(conn) is not None
+
+
+def test_get_kararlar_by_profil_genel_only_returns_genel_tagged(conn):
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Finans Karar", tarih="2026-01-01", kaynak_url="https://example.com/8", ozet_ham="x")
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Genel Karar", tarih="2026-01-02", kaynak_url="https://example.com/9", ozet_ham="x")
+    ids = {row["baslik"]: row["id"] for row in conn.execute("SELECT id, baslik FROM kararlar").fetchall()}
+
+    db.update_karar_classification(conn, ids["Finans Karar"], ["finans"], "özet", [], False, "")
+    db.update_karar_classification(conn, ids["Genel Karar"], ["genel"], "özet", [], False, "")
+
+    genel_sonuc = db.get_kararlar_by_profil(conn, "genel")
+    assert [k["baslik"] for k in genel_sonuc] == ["Genel Karar"]

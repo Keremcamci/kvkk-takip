@@ -96,7 +96,7 @@ def get_kararlar_by_profil(conn, profil) -> list[dict]:
     sonuc = []
     for row in rows:
         sektorler = json.loads(row["sektorler"]) if row["sektorler"] else []
-        if profil == "genel" or profil in sektorler or "genel" in sektorler:
+        if profil in sektorler or "genel" in sektorler:
             sonuc.append({
                 "id": row["id"],
                 "baslik": row["baslik"],
