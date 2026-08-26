@@ -41,3 +41,14 @@ def test_api_kararlar_defaults_to_genel_profile_when_empty(monkeypatch, tmp_path
     veri = response.get_json()
     assert veri["kararlar"] == []
     assert veri["son_guncelleme"] is None
+
+
+def test_index_escapes_kaynak_url_before_href_injection():
+    # Regression guard for the kaynak_url attribute-injection/XSS gap: the
+    # served index.html must run kaynak_url through esc() before interpolating
+    # it into the href attribute, same as every other field in kararKart().
+    client = backend.app.test_client()
+    response = client.get("/")
+    body = response.get_data(as_text=True)
+    assert 'href="${esc(karar.kaynak_url)}"' in body
+    assert 'href="${karar.kaynak_url}"' not in body

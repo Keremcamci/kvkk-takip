@@ -70,7 +70,7 @@
           <div class="tarih">${esc(karar.tarih)}</div>
           <p>${esc(karar.ozet)}</p>
           ${maddeler ? `<ul class="yapilmasi-gerekenler">${maddeler}</ul>` : ""}
-          <a class="kaynak-link" href="${karar.kaynak_url}" target="_blank" rel="noopener">Kaynağı gör</a>
+          <a class="kaynak-link" href="${esc(karar.kaynak_url)}" target="_blank" rel="noopener">Kaynağı gör</a>
         </div>
       `;
     }
