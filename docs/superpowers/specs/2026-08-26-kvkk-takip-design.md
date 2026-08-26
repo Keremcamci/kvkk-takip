@@ -66,15 +66,27 @@ CREATE TABLE kararlar (
 
 ## Scraper (`scraper.py`)
 
-- Hedef: `https://www.kvkk.gov.tr/Icerik/Kurul-Kararlari` (liste sayfası)
-- `robots.txt` kontrolü + `User-Agent` header ile `requests.get()`,
-  `BeautifulSoup` ile parse
-- Sayfa yapısı henüz doğrulanmadı — implementasyonun ilk adımı sayfayı çekip
-  gerçek HTML yapısını incelemek. Statik HTML ise `requests`+`BeautifulSoup`
-  yeterli; JS-render edilen bir SPA çıkarsa `playwright` gerekebilir (bu
-  durumda tasarım revize edilecek).
+**Güncelleme (plan yazımı sırasında canlı siteye bakılarak doğrulandı):**
+Kullanıcının verdiği `kvkk.gov.tr/Icerik/Kurul-Kararlari` URL'i güncel değil
+(anasayfaya 302 redirect ediyor). Gerçek sayfa: `https://www.kvkk.gov.tr/Icerik/5419/kurul-kararlari`.
+
+- `robots.txt` `https://www.kvkk.gov.tr/robots.txt` şu an mevcut değil (302 →
+  anasayfa), yani beyan edilmiş bir kısıtlama yok.
+- Sayfa **düz HTML** (JS render gerekmiyor) — `requests.get()` + descriptive
+  `User-Agent` header, status 200, doğrudan tam liste dönüyor. `playwright`
+  gerekmiyor.
+- Liste sayfasında **ayrı bir özet metni yok** — her karar için tek bir uzun
+  başlık var (örn. "... Kişisel Verileri Koruma Kurulunun 22.07.2026 Tarihli
+  ve 2026/1491 Sayılı Kararı"), tarih ve karar no bu başlığın içine gömülü.
+  Bu yüzden `ozet_ham = baslik` (aynı metin), `tarih` başlıktan regex ile
+  parse ediliyor (`DD.MM.YYYY` veya `DD/MM/YYYY` → ISO `YYYY-MM-DD`).
+- Her karar satırı: `div.members__item` container, başlık `h2` içinde, link
+  `a.read-more[href]`. Link bazen harici bir Resmi Gazete PDF'i, bazen
+  KVKK'nın kendi iç sayfası olabiliyor — ikisi de aynı şekilde `kaynak_url`
+  olarak saklanıyor, MVP'de fetch/parse edilmiyor.
+- Sayfalama var (`?page=1/2/3`, ~10 karar/sayfa) — **MVP sadece sayfa 1'i
+  (en güncel ~10 karar) çeker**, pagination kapsam dışı.
 - Çekilecek alanlar: `baslik`, `tarih`, `kaynak_url`, `ozet_ham`
-- İstekler arası `time.sleep(1-2s)` (rate-limit / saygılı scraping)
 - Yeni kararlar `db.insert_karar_if_new()` ile yazılır
 
 ## LLM Sınıflandırma (`classifier.py`)
