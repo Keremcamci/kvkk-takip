@@ -7,9 +7,10 @@
   body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; background: #ffffff; color: #1a1a1a; }
   h1 { font-size: 1.4rem; }
   .uyari { background: #fff3cd; border: 1px solid #ffe69c; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.9rem; margin-bottom: 1rem; }
-  .ust-satir { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+  .ust-satir { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem; }
   select { font-size: 1rem; padding: 0.3rem; }
   .son-guncelleme { font-size: 0.85rem; color: #555; }
+  .kaynak-ozet { font-size: 0.85rem; color: #555; margin-bottom: 1rem; }
   .karar { background: #ffffff; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
   .karar h3 { margin: 0 0 0.4rem 0; font-size: 1.05rem; }
   .tarih { color: #666; font-size: 0.85rem; }
@@ -38,12 +39,17 @@
     </label>
     <span class="son-guncelleme" id="son-guncelleme"></span>
   </div>
+  <!-- Seçili profilden BAĞIMSIZ: "genel" profili yalnızca "genel" etiketli
+       kararları gösterdiği için, BDDK/SPK kararları veritabanında dururken
+       kullanıcı bunların varlığını hiç fark etmiyordu. -->
+  <div class="kaynak-ozet" id="kaynak-ozet"></div>
   <div id="liste"></div>
 
   <script>
     const profilSelect = document.getElementById("profil");
     const liste = document.getElementById("liste");
     const sonGuncellemeEl = document.getElementById("son-guncelleme");
+    const kaynakOzetEl = document.getElementById("kaynak-ozet");
 
     // Metin (text node) içeriği için: &, <, > yeterli.
     function esc(str) {
@@ -79,6 +85,27 @@
       return d.toLocaleString("tr-TR");
     }
 
+    // "Toplam: 8 KVKK, 10 BDDK, 10 SPK karar takip ediliyor."
+    // Sıra sabittir (sözlük SQLite'tan alfabetik gelir); sayısı 0 olan ya da
+    // hiç taranmamış kaynak "0 BDDK" diye gösterilmez, tamamen atlanır.
+    // Çıktı yalnızca sayı + sabit kaynak adı olduğu için textContent ile
+    // yazılır — kaçırma (escaping) gerektiren bir yola hiç girilmez.
+    function kaynakOzetMetni(kaynakSayilari) {
+      const sayilar = kaynakSayilari || {};
+      const bilinenSira = ["kvkk", "bddk", "spk"];
+      // Bilinmeyen bir kaynak (ileride Resmi Gazete vb.) sessizce görünmez
+      // olmasın — bu satırı doğuran bulgunun tam olarak o sınıfı.
+      const digerleri = Object.keys(sayilar)
+        .filter((k) => bilinenSira.indexOf(k) === -1)
+        .sort();
+      const parcalar = bilinenSira
+        .concat(digerleri)
+        .filter((k) => sayilar[k] > 0)
+        .map((k) => `${sayilar[k]} ${String(k).toUpperCase()}`);
+      if (parcalar.length === 0) return "";
+      return `Toplam: ${parcalar.join(", ")} karar takip ediliyor.`;
+    }
+
     function kararKart(karar) {
       const kaynakRozetiHtml = karar.kaynak
         ? `<span class="kaynak-rozet">${esc(karar.kaynak.toUpperCase())}</span>`
@@ -112,6 +139,9 @@
       sonGuncellemeEl.textContent = sonGuncelleme
         ? `Son güncelleme: ${sonGuncelleme}`
         : "Henüz veri yok";
+      // Boş liste dalından ÖNCE: bu satırın asıl işe yaradığı durum tam da
+      // seçili profilin hiç karar döndürmediği durum.
+      kaynakOzetEl.textContent = kaynakOzetMetni(veri.kaynak_sayilari);
       if (!veri.kararlar || veri.kararlar.length === 0) {
         liste.innerHTML = '<p class="bos">Bu profil için henüz karar yok.</p>';
         return;

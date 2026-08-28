@@ -31,6 +31,58 @@ def test_api_kararlar_returns_son_guncelleme_and_filtered_list(monkeypatch, tmp_
     assert veri["kararlar"][0]["baslik"] == "Genel Karar"
 
 
+def test_api_kararlar_returns_kaynak_sayilari_for_every_profil(monkeypatch, tmp_path):
+    """Kaynak sayıları profil filtresinden BAĞIMSIZ olmalı.
+
+    Bulgu buydu: varsayılan "genel" profili yalnızca "genel" etiketli
+    kararları döndürüyor, bu yüzden BDDK/SPK kararları veritabanında
+    olmasına rağmen kullanıcıya hiçbir iz bırakmıyordu. Bu alan
+    `son_guncelleme` gibi davranır: hangi profil istenirse istensin aynı
+    değeri döner.
+    """
+    db_path = tmp_path / "test_backend_kaynak.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+
+    conn = db.get_connection()
+    db.init_db(conn)
+    # Gerçek dağılımın minik hali: KVKK "genel", BDDK/SPK "finans".
+    veriler = [
+        ("kvkk", "KVKK Kararı", "https://example.com/k1", ["genel"]),
+        ("bddk", "BDDK Kararı 1", "https://example.com/b1", ["finans"]),
+        ("bddk", "BDDK Kararı 2", "https://example.com/b2", ["finans"]),
+        ("spk", "SPK Kararı", "https://example.com/s1", ["finans"]),
+    ]
+    for kaynak, baslik, url, sektorler in veriler:
+        db.insert_karar_if_new(conn, kaynak=kaynak, baslik=baslik, tarih="2026-01-01", kaynak_url=url, ozet_ham="x")
+        karar_id = next(k["id"] for k in db.get_pending_kararlar(conn) if k["baslik"] == baslik)
+        db.update_karar_classification(conn, karar_id, sektorler, "özet", [], False, "")
+    conn.close()
+
+    client = backend.app.test_client()
+    beklenen = {"kvkk": 1, "bddk": 2, "spk": 1}
+
+    # Varsayılan (genel) profil: liste yalnızca 1 karar gösterse bile
+    # kullanıcı diğer 3 kararın var olduğunu görebilmeli.
+    varsayilan = client.get("/api/kararlar").get_json()
+    assert varsayilan["kaynak_sayilari"] == beklenen
+    assert len(varsayilan["kararlar"]) == 1
+
+    # Ve değer profile göre DEĞİŞMEMELİ.
+    for profil in ["genel", "e-ticaret", "finans", "saglik", "egitim"]:
+        veri = client.get(f"/api/kararlar?profil={profil}").get_json()
+        assert veri["kaynak_sayilari"] == beklenen, profil
+
+
+def test_api_kararlar_kaynak_sayilari_is_empty_when_db_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_backend_kaynak_bos.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
+    veri = backend.app.test_client().get("/api/kararlar").get_json()
+    assert veri["kaynak_sayilari"] == {}
+
+
 def test_api_kararlar_defaults_to_genel_profile_when_empty(monkeypatch, tmp_path):
     db_path = tmp_path / "test_backend2.db"
     monkeypatch.setattr(db, "DB_PATH", db_path)
@@ -132,3 +184,4 @@ def test_run_scrape_logs_warning_for_failed_source(monkeypatch, tmp_path, caplog
 
     assert "bddk" in caplog.text
     assert "BDDK sitesi erişilemedi" in caplog.text
+

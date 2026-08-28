@@ -126,6 +126,20 @@ def get_kararlar_by_profil(conn, profil) -> list[dict]:
     return sonuc
 
 
+def get_kaynak_sayilari(conn) -> dict[str, int]:
+    """İşlenmiş karar sayısını kaynağa (kvkk/bddk/spk) göre döner.
+
+    Profil filtresinden bağımsızdır. Varsayılan "genel" profili yalnızca
+    "genel" etiketli kararları gösterdiği için, BDDK/SPK kararları
+    veritabanında dururken kullanıcı bunlardan hiçbirini göremiyordu. Bu
+    sayım arayüzde her zaman görünen bir özet satırı olarak gösterilir.
+    """
+    rows = conn.execute(
+        "SELECT kaynak, COUNT(*) AS sayi FROM kararlar WHERE islendi_mi = 1 GROUP BY kaynak"
+    ).fetchall()
+    return {row["kaynak"]: row["sayi"] for row in rows}
+
+
 def get_son_guncelleme(conn) -> str | None:
     row = conn.execute("SELECT MAX(created_at) AS son FROM kararlar").fetchone()
     return row["son"] if row and row["son"] else None

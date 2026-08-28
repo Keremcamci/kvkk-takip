@@ -27,9 +27,17 @@ def api_kararlar():
     try:
         kararlar = db.get_kararlar_by_profil(conn, profil)
         son_guncelleme = db.get_son_guncelleme(conn)
+        # `son_guncelleme` gibi profilden bağımsızdır: seçili profil listeyi
+        # boşaltsa bile kullanıcı hangi kaynaktan kaç karar takip edildiğini
+        # görebilmeli.
+        kaynak_sayilari = db.get_kaynak_sayilari(conn)
     finally:
         conn.close()
-    return jsonify({"son_guncelleme": son_guncelleme, "kararlar": kararlar})
+    return jsonify({
+        "son_guncelleme": son_guncelleme,
+        "kaynak_sayilari": kaynak_sayilari,
+        "kararlar": kararlar,
+    })
 
 
 def run_scrape() -> None:
