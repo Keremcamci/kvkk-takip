@@ -43,11 +43,30 @@ def run_scrape() -> None:
         conn.close()
 
 
+def run_reset_failed() -> None:
+    conn = db.get_connection()
+    try:
+        db.init_db(conn)
+        sayi = db.reset_failed_kararlar(conn)
+        print(f"{sayi} karar yeniden denenmek üzere kuyruğa alındı.")
+    finally:
+        conn.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="KVKK Mevzuat Takip Aracı")
     parser.add_argument("--scrape", action="store_true", help="Scrape + sınıflandırma pipeline'ını çalıştır")
+    parser.add_argument(
+        "--reset-failed",
+        action="store_true",
+        help="Kalıcı hataya düşmüş kararları yeniden kuyruğa al (sonra --scrape çalıştırın)",
+    )
     parser.add_argument("--port", type=int, default=5001)
     args = parser.parse_args()
+
+    if args.reset_failed:
+        run_reset_failed()
+        return
 
     if args.scrape:
         run_scrape()

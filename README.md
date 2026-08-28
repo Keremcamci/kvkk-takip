@@ -28,11 +28,30 @@ python backend.py
 # http://localhost:5001 adresini aç
 ```
 
+### Kalıcı hatalardan kurtarma
+
+Bir karar üst üste 3 kez sınıflandırılamazsa (örn. `.env` içindeki
+`ANTHROPIC_API_KEY` hatalı yazılmışsa) kalıcı hata olarak işaretlenir ve bir
+daha otomatik denenmez. Sorunu düzelttikten sonra bu kararları yeniden
+kuyruğa almak için:
+
+```bash
+python backend.py --reset-failed   # kalıcı hataları yeniden denenebilir yapar
+python backend.py --scrape         # sonra pipeline'ı tekrar çalıştırın
+```
+
+Sınıflandırma hataları `logging.warning` ile stderr'e yazılır; hangi kararın
+neden başarısız olduğunu görmek için `--scrape` çıktısına bakın.
+
 ## Test
 
 ```bash
 pytest
 ```
+
+`tests/test_frontend.py` içindeki bazı testler `index.html`'in JavaScript'ini
+gerçekten çalıştırmak için `node` kullanır; `node` kurulu değilse o testler
+atlanır, diğerleri çalışır.
 
 ## Kapsam
 

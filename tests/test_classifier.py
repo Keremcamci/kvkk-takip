@@ -1,3 +1,8 @@
+import logging
+from pathlib import Path
+
+import pytest
+
 import db
 import classifier
 
@@ -111,3 +116,75 @@ def test_classify_pending_marks_permanent_failure_after_max_deneme(conn):
     row = conn.execute("SELECT islendi_mi, deneme_sayisi FROM kararlar").fetchone()
     assert row["islendi_mi"] == -1
     assert row["deneme_sayisi"] == 3
+
+
+# --- Sektör etiketleme kuralı (profil filtresinin işlevsiz kalmaması için) ---
+
+
+def test_sektorler_schema_restricts_genel_to_truly_universal_kararlar():
+    aciklama = classifier.KARAR_SINIFLANDIRMA_TOOL["input_schema"]["properties"]["sektorler"]["description"]
+    assert classifier.SEKTOR_ETIKETLEME_KURALI in aciklama
+    # Kuralın özü: "genel" kısıtlı ve nadir olmalı.
+    assert "SADECE" in aciklama
+    assert "nadiren" in aciklama
+    for sektor in ("e-ticaret", "finans", "sağlık", "eğitim"):
+        assert sektor in aciklama
+
+
+def test_build_prompt_includes_sektor_labeling_rule():
+    prompt = classifier.build_prompt("Başlık", "2026-01-01", "ham özet")
+    assert classifier.SEKTOR_ETIKETLEME_KURALI in prompt
+    assert "ham özet" in prompt
+    assert "2026-01-01" in prompt
+
+
+# --- Hata görünürlüğü ve model yapılandırması ---
+
+
+def test_classify_pending_logs_warning_instead_of_swallowing_error(conn, caplog):
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01", kaynak_url="https://example.com/3", ozet_ham="Karar")
+    karar_id = db.get_pending_kararlar(conn)[0]["id"]
+    client = FakeClient([ValueError("çok özel bir hata")])
+
+    with caplog.at_level(logging.WARNING):
+        classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
+
+    metin = caplog.text
+    assert str(karar_id) in metin
+    assert "çok özel bir hata" in metin
+
+
+def test_classify_pending_logs_recovery_hint_on_permanent_failure(conn, caplog):
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01", kaynak_url="https://example.com/4", ozet_ham="Karar")
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            classifier.classify_pending(
+                conn, client=FakeClient([ValueError("hata")]), model="model", sleep_fn=lambda s: None
+            )
+
+    assert "--reset-failed" in caplog.text
+
+
+def test_get_model_raises_when_env_var_missing(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_MODEL"):
+        classifier._get_model()
+
+
+def test_get_model_raises_when_env_var_empty(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "")
+    with pytest.raises(RuntimeError, match="ANTHROPIC_MODEL"):
+        classifier._get_model()
+
+
+def test_get_model_returns_env_var_value(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "bir-model-adi")
+    assert classifier._get_model() == "bir-model-adi"
+
+
+def test_no_hardcoded_model_name_fallback_in_source():
+    """Plan kısıtı: model adı asla kod içine sabit yazılmaz."""
+    kaynak = Path(classifier.__file__).read_text(encoding="utf-8")
+    assert "claude-sonnet" not in kaynak
+    assert 'os.environ.get("ANTHROPIC_MODEL",' not in kaynak

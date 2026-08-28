@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 
@@ -9,6 +10,24 @@ MAX_BACKOFF_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 1
 MAX_KARAR_DENEME = 3
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+# Aracın tüm değeri "kararları SİZİN şirket tipinize göre filtreliyoruz"
+# vaadinde. Model her karara "genel" verirse her profil aynı listeyi görür ve
+# filtre işlevsiz kalır (canlı testte 10/10 karar "genel" etiketlenmişti).
+# Bu yüzden "genel" bilinçli olarak dar tanımlanır; kural hem tool şemasında
+# hem prompt'ta tekrarlanır.
+SEKTOR_ETIKETLEME_KURALI = (
+    '"genel" etiketini SADECE karar dört sektörün hepsini '
+    "(e-ticaret, finans, sağlık, eğitim) eşit ölçüde ve aynı şekilde "
+    "ilgilendiriyorsa kullan. Karar belirli bir veya birkaç sektöre daha çok "
+    "uyuyorsa (örn. özel nitelikli/sağlık verisi işleyenler, çevrimiçi satış "
+    "yapanlar, kredi ve ödeme kuruluşları, öğrenci verisi tutan kurumlar) "
+    'yalnızca o sektör(ler)i etiketle, "genel" EKLEME. "genel" nadiren doğru '
+    "cevaptır; kararların çoğu aslında belirli sektörleri ilgilendirir. Emin "
+    'değilsen "genel" yerine en uygun spesifik sektörü seç. "genel" diğer '
+    'etiketlerle birlikte kullanılmaz: ya yalnızca "genel", ya bir veya daha '
+    "fazla spesifik sektör."
+)
 
 KARAR_SINIFLANDIRMA_TOOL = {
     "name": "karar_sinifla",
@@ -22,7 +41,10 @@ KARAR_SINIFLANDIRMA_TOOL = {
                     "type": "string",
                     "enum": ["e-ticaret", "finans", "saglik", "egitim", "genel"],
                 },
-                "description": "Bu kararın ilgilendirdiği şirket profilleri.",
+                "description": (
+                    "Bu kararın ilgilendirdiği şirket profilleri. "
+                    + SEKTOR_ETIKETLEME_KURALI
+                ),
             },
             "ozet": {"type": "string", "description": "2-3 cümlelik özet."},
             "yapilmasi_gerekenler": {
@@ -46,6 +68,8 @@ def build_prompt(baslik: str, tarih, ozet_ham: str) -> str:
         "Aşağıda bir KVKK (Kişisel Verilerin Korunması Kurumu) kurul kararının "
         "başlığı verilmiştir. Bu kararı karar_sinifla aracını kullanarak "
         "sınıflandır.\n\n"
+        "Sektör etiketleme kuralı (ÖNEMLİ): "
+        f"{SEKTOR_ETIKETLEME_KURALI}\n\n"
         f"Tarih: {tarih or 'bilinmiyor'}\n"
         f"Başlık/Özet: {ozet_ham}\n"
     )
@@ -60,7 +84,14 @@ def _get_client() -> Anthropic:
 
 
 def _get_model() -> str:
-    return os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+    # Model adı asla kod içine sabit yazılmaz (plan kısıtı) — eksikse
+    # sessizce bir varsayılana düşmek yerine net bir hata ver.
+    model = os.environ.get("ANTHROPIC_MODEL")
+    if not model:
+        raise RuntimeError(
+            "ANTHROPIC_MODEL ortam değişkeni ayarlanmamış (.env dosyasını kontrol edin)"
+        )
+    return model
 
 
 def classify_karar(client, baslik, tarih, ozet_ham, model, sleep_fn=time.sleep) -> dict:
@@ -108,9 +139,16 @@ def classify_pending(conn, client=None, model=None, sleep_fn=time.sleep) -> dict
                 classification["aciliyet_aciklama"],
             )
             sonuc["basarili"] += 1
-        except Exception:
+        except Exception as exc:
+            logging.warning("Karar %s sınıflandırılamadı: %s", karar["id"], exc)
             kalici_mi = db.mark_karar_failed(conn, karar["id"])
             if kalici_mi:
+                logging.warning(
+                    "Karar %s kalıcı hata olarak işaretlendi (%s deneme). "
+                    "Düzelttikten sonra: python backend.py --reset-failed",
+                    karar["id"],
+                    MAX_KARAR_DENEME,
+                )
                 sonuc["kalici_hata"] += 1
             else:
                 sonuc["basarisiz"] += 1

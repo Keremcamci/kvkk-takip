@@ -1,3 +1,5 @@
+import sys
+
 import db
 import backend
 
@@ -43,12 +45,44 @@ def test_api_kararlar_defaults_to_genel_profile_when_empty(monkeypatch, tmp_path
     assert veri["son_guncelleme"] is None
 
 
-def test_index_escapes_kaynak_url_before_href_injection():
-    # Regression guard for the kaynak_url attribute-injection/XSS gap: the
-    # served index.html must run kaynak_url through esc() before interpolating
-    # it into the href attribute, same as every other field in kararKart().
-    client = backend.app.test_client()
-    response = client.get("/")
-    body = response.get_data(as_text=True)
-    assert 'href="${esc(karar.kaynak_url)}"' in body
-    assert 'href="${karar.kaynak_url}"' not in body
+# NOT: index.html'in öznitelik kaçırma (escaping) koruması artık
+# tests/test_frontend.py'de — hem kaynak seviyesinde hem node ile gerçekten
+# çalıştırılarak. Buradaki eski test yalnızca sayfa kaynağında
+# `esc(karar.kaynak_url)` metnini arıyordu; tırnak kaçırma açığı canlıyken
+# bile geçtiği için gerçek bir regresyon koruması değildi.
+
+
+def test_reset_failed_cli_requeues_and_reports_count(monkeypatch, tmp_path, capsys):
+    db_path = tmp_path / "test_reset_cli.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+
+    conn = db.get_connection()
+    db.init_db(conn)
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01", kaynak_url="https://example.com/r1", ozet_ham="x")
+    karar_id = db.get_pending_kararlar(conn)[0]["id"]
+    for _ in range(3):
+        db.mark_karar_failed(conn, karar_id)
+    conn.close()
+
+    monkeypatch.setattr(sys, "argv", ["backend.py", "--reset-failed"])
+    backend.main()
+
+    assert "1 karar" in capsys.readouterr().out
+    conn = db.get_connection()
+    try:
+        assert len(db.get_pending_kararlar(conn)) == 1
+    finally:
+        conn.close()
+
+
+def test_reset_failed_cli_does_not_also_run_scrape(monkeypatch, tmp_path, capsys):
+    """--reset-failed ayrı ve açık bir eylemdir; aynı çağrıda scrape etmez."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_reset_cli2.db")
+    cagrildi = []
+    monkeypatch.setattr(backend, "run_scrape", lambda: cagrildi.append("scrape"))
+    monkeypatch.setattr(sys, "argv", ["backend.py", "--reset-failed"])
+
+    backend.main()
+
+    assert cagrildi == []
+    assert "0 karar" in capsys.readouterr().out

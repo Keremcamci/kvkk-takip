@@ -87,6 +87,19 @@ def mark_karar_failed(conn, karar_id) -> bool:
     return kalici_mi
 
 
+def reset_failed_kararlar(conn) -> int:
+    """Kalıcı hataya düşmüş (islendi_mi = -1) kararları yeniden kuyruğa alır.
+
+    Kullanıcı hatalı API anahtarını düzelttiğinde zehirlenmiş kararları elle
+    SQL yazmadan kurtarabilsin diye. Etkilenen satır sayısını döner.
+    """
+    cur = conn.execute(
+        "UPDATE kararlar SET islendi_mi = 0, deneme_sayisi = 0 WHERE islendi_mi = -1"
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 def get_kararlar_by_profil(conn, profil) -> list[dict]:
     rows = conn.execute(
         "SELECT id, baslik, tarih, llm_ozet, sektorler, yapilmasi_gerekenler, "

@@ -104,6 +104,42 @@ def test_get_son_guncelleme_returns_timestamp_after_insert(conn):
     assert db.get_son_guncelleme(conn) is not None
 
 
+def test_reset_failed_kararlar_requeues_permanently_failed_rows(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="kvkk", baslik="Zehirlenmiş Karar", tarih="2026-01-01",
+        kaynak_url="https://example.com/10", ozet_ham="x",
+    )
+    karar_id = db.get_pending_kararlar(conn)[0]["id"]
+    for _ in range(3):
+        db.mark_karar_failed(conn, karar_id)
+    assert db.get_pending_kararlar(conn) == []
+
+    assert db.reset_failed_kararlar(conn) == 1
+
+    bekleyenler = db.get_pending_kararlar(conn)
+    assert len(bekleyenler) == 1
+    assert bekleyenler[0]["id"] == karar_id
+    assert bekleyenler[0]["deneme_sayisi"] == 0
+
+
+def test_reset_failed_kararlar_leaves_pending_and_processed_rows_untouched(conn):
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Bekleyen", tarih="2026-01-01", kaynak_url="https://example.com/11", ozet_ham="x")
+    db.insert_karar_if_new(conn, kaynak="kvkk", baslik="İşlenmiş", tarih="2026-01-02", kaynak_url="https://example.com/12", ozet_ham="x")
+    ids = {row["baslik"]: row["id"] for row in conn.execute("SELECT id, baslik FROM kararlar").fetchall()}
+    db.update_karar_classification(conn, ids["İşlenmiş"], ["genel"], "özet", [], False, "")
+    db.mark_karar_failed(conn, ids["Bekleyen"])  # deneme_sayisi = 1, hâlâ bekliyor
+
+    assert db.reset_failed_kararlar(conn) == 0
+
+    row = conn.execute("SELECT deneme_sayisi FROM kararlar WHERE id = ?", (ids["Bekleyen"],)).fetchone()
+    assert row["deneme_sayisi"] == 1  # sıfırlanmadı
+    assert len(db.get_kararlar_by_profil(conn, "genel")) == 1  # işlenmiş karar bozulmadı
+
+
+def test_reset_failed_kararlar_returns_zero_when_nothing_failed(conn):
+    assert db.reset_failed_kararlar(conn) == 0
+
+
 def test_get_kararlar_by_profil_genel_only_returns_genel_tagged(conn):
     db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Finans Karar", tarih="2026-01-01", kaynak_url="https://example.com/8", ozet_ham="x")
     db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Genel Karar", tarih="2026-01-02", kaynak_url="https://example.com/9", ozet_ham="x")

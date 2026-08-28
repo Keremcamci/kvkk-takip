@@ -44,10 +44,31 @@
     const liste = document.getElementById("liste");
     const sonGuncellemeEl = document.getElementById("son-guncelleme");
 
+    // Metin (text node) içeriği için: &, <, > yeterli.
     function esc(str) {
-      const div = document.createElement("div");
-      div.textContent = str ?? "";
-      return div.innerHTML;
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    // HTML ÖZNİTELİK değeri için: tırnakları da kaçırmak ZORUNLU. esc() bunu
+    // yapmaz; tırnak kaçırılmazsa gerçek karar başlıklarındaki " karakteri
+    // özniteliğin dışına çıkıp (örn. onmouseover=) öznitelik enjeksiyonuna
+    // izin verir. Öznitelik içine giren HER değer escAttr()'dan geçmeli.
+    function escAttr(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    // Tırnak kaçırmak javascript: şemasını engellemez — şemayı ayrıca doğrula.
+    function guvenliUrl(url) {
+      const temiz = String(url ?? "").trim();
+      return /^https?:\/\//i.test(temiz) ? temiz : null;
     }
 
     function formatTarih(iso) {
@@ -59,18 +80,22 @@
 
     function kararKart(karar) {
       const aciliyetHtml = karar.aciliyet_var
-        ? `<span class="aciliyet" title="${esc(karar.aciliyet_aciklama)}">Aciliyet</span>`
+        ? `<span class="aciliyet" title="${escAttr(karar.aciliyet_aciklama)}">Aciliyet</span>`
         : "";
       const maddeler = (karar.yapilmasi_gerekenler || [])
         .map((m) => `<li>${esc(m)}</li>`)
         .join("");
+      const url = guvenliUrl(karar.kaynak_url);
+      const kaynakHtml = url
+        ? `<a class="kaynak-link" href="${escAttr(url)}" target="_blank" rel="noopener">Kaynağı gör</a>`
+        : "";
       return `
         <div class="karar">
           <h3>${esc(karar.baslik)}${aciliyetHtml}</h3>
           <div class="tarih">${esc(karar.tarih)}</div>
           <p>${esc(karar.ozet)}</p>
           ${maddeler ? `<ul class="yapilmasi-gerekenler">${maddeler}</ul>` : ""}
-          <a class="kaynak-link" href="${esc(karar.kaynak_url)}" target="_blank" rel="noopener">Kaynağı gör</a>
+          ${kaynakHtml}
         </div>
       `;
     }
