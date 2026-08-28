@@ -11,15 +11,19 @@ Sınıflandırıcı sahtedir (gerçek Anthropic API'ye çıkılmaz: testte anaht
 garantisi ve tekrarlanabilir çıktı yok).
 """
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import backend
 import classifier
 import db
-import scraper
+from scrapers import bddk, kvkk, spk
 
-FIXTURE = Path(__file__).parent / "fixtures" / "kvkk_kararlari_sample.html"
+FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURE = FIXTURES / "kvkk_kararlari_sample.html"
+BDDK_FIXTURE = FIXTURES / "bddk_kararlar_sample.html"
+SPK_FIXTURE = FIXTURES / "spk_kararlar_sample.json"
 
 # Gerçekçi, FARKLILAŞMIŞ etiketler — fixture'daki üç gerçek karar başlığına
 # anahtar kelimeyle eşlenir.
@@ -77,8 +81,8 @@ class SahteClient:
 def _pipeline_calistir(conn, client) -> dict:
     """scraper + classifier'ı gerçek fixture HTML'i üzerinde uçtan uca koşar."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scraper.fetch_page", return_value=html):
-        scraper.scrape_and_store(conn)
+    with patch("scrapers.kvkk.fetch_page", return_value=html):
+        kvkk.scrape_and_store(conn)
     return classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
     )
@@ -161,8 +165,8 @@ def test_reset_failed_unsticks_kararlar_and_pipeline_recovers(conn):
     """API anahtarı hatalıyken kalıcı hataya düşen kararlar, anahtar
     düzeltilip --reset-failed çalıştırıldıktan sonra sınıflandırılabilmeli."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scraper.fetch_page", return_value=html):
-        scraper.scrape_and_store(conn)
+    with patch("scrapers.kvkk.fetch_page", return_value=html):
+        kvkk.scrape_and_store(conn)
 
     class BozukClient:
         class messages:
@@ -187,3 +191,118 @@ def test_reset_failed_unsticks_kararlar_and_pipeline_recovers(conn):
     assert _basliklar(db.get_kararlar_by_profil(conn, "e-ticaret")) != _basliklar(
         db.get_kararlar_by_profil(conn, "saglik")
     )
+
+
+# --- Üç kaynağın BİRLİKTE kompozisyonu ----------------------------------
+#
+# Yukarıdaki testlerin hepsi yalnızca KVKK fixture'ını kullanıyordu. Son
+# gözden geçirmenin bulgusu tam da bu boşluktan geçti: her görevin kendi
+# sahte verisi elle farklılaştırılmıştı, bu yüzden hiçbir test "üç kaynak
+# birlikte tarandığında profil filtresi kullanıcıya ne gösterir?" sorusunu
+# sormadı. Canlı veride BDDK ve SPK kararlarının TAMAMI "finans" etiketlendi
+# (doğru sınıflandırma — ikisi de finansal düzenleyici), dolayısıyla
+# varsayılan "genel" profilini açan kullanıcı 20 yeni kararın hiçbirini
+# görmedi.
+
+# Gerçek dağılımın birebir taklidi: KVKK başlıkları anahtar kelimeyle
+# farklılaşır, BDDK/SPK ise kurum adından yakalanıp "finans" etiketlenir.
+UC_KAYNAK_ETIKETLERI = {
+    "Sadakat Kart": ["e-ticaret"],
+    "Özel Nitelikli": ["saglik"],
+    "Köy Tüzel": ["genel"],
+    # classifier.build_prompt kurum adını prompt'a yazar (KURUM_ADLARI).
+    "BDDK (Bankacılık": ["finans"],
+    "SPK (Sermaye": ["finans"],
+}
+
+# tests/fixtures içindeki gerçek kayıt sayıları. SPK fixture'ında 3 kayıt
+# var ama biri "Tebliğ" türünde; spk.GECERLI_TURLER onu tarama sırasında
+# eler, yani sınıflandırmaya hiç ulaşmaz.
+BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2}
+
+
+def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
+    """Üç fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
+    with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")):
+        kvkk.scrape_and_store(conn)
+    with patch(
+        "scrapers.bddk.fetch_page", return_value=BDDK_FIXTURE.read_text(encoding="utf-8")
+    ):
+        bddk.scrape_and_store(conn)
+    with patch(
+        "scrapers.spk.fetch_veri",
+        return_value=json.loads(SPK_FIXTURE.read_text(encoding="utf-8")),
+    ):
+        spk.scrape_and_store(conn)
+    return classifier.classify_pending(
+        conn, client=client, model="test-model", sleep_fn=lambda s: None
+    )
+
+
+def _kaynaklar(kararlar) -> set:
+    return {k["kaynak"] for k in kararlar}
+
+
+def test_all_three_sources_compose_through_classification_and_profil_filter(conn):
+    """Üç kaynak birlikte tarandığında pipeline uçtan uca tutarlı olmalı."""
+    sonuc = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+
+    # 3 (kvkk) + 3 (bddk) + 2 (spk; "Tebliğ" taramada elendi) = 8
+    assert sonuc == {"basarili": 8, "basarisiz": 0, "kalici_hata": 0}
+    assert sum(BEKLENEN_KAYNAK_SAYILARI.values()) == 8
+
+    # Kaynak başına sayım (arayüzdeki her zaman görünen özet satırının verisi).
+    assert db.get_kaynak_sayilari(conn) == BEKLENEN_KAYNAK_SAYILARI
+
+    # "finans" profili artık YALNIZCA kvkk değil, üç kaynağı da görmeli.
+    finans = db.get_kararlar_by_profil(conn, "finans")
+    assert _kaynaklar(finans) == {"kvkk", "bddk", "spk"}
+    # 3 bddk + 2 spk ("finans") + 1 kvkk ("genel" olan Köy Tüzel kararı)
+    assert len(finans) == 6
+    assert len([k for k in finans if k["kaynak"] == "bddk"]) == 3
+    assert len([k for k in finans if k["kaynak"] == "spk"]) == 2
+
+    # Hiçbir karar kaybolmamalı: her karar en az bir profilde görünür olmalı.
+    profiller = ["genel", "e-ticaret", "finans", "saglik", "egitim"]
+    gorunen = {k["id"] for p in profiller for k in db.get_kararlar_by_profil(conn, p)}
+    assert len(gorunen) == 8
+
+
+def test_default_genel_profil_hides_bddk_and_spk_but_kaynak_ozeti_does_not(conn):
+    """ASIL BULGU: gerçek dağılımda varsayılan "genel" profili BDDK ve
+    SPK'nın tamamını gizler — bu, filtrenin doğru çalışmasıdır, hata değil.
+    Bu yüzden düzeltme filtreyi değil GÖRÜNÜRLÜĞÜ hedefler: kaynak sayısı
+    özeti profilden bağımsızdır ve kullanıcıya bu kararların var olduğunu
+    söyler.
+    """
+    _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+
+    genel = db.get_kararlar_by_profil(conn, "genel")
+    assert _kaynaklar(genel) == {"kvkk"}, "senaryo kurgusu bozulmuş"
+    assert len(genel) == 1
+
+    # ...ama kaynak özeti, "genel" profilinde bile 5 kararın daha var
+    # olduğunu gösterir. Bu iddia düşerse bulgu geri gelmiş demektir.
+    sayilar = db.get_kaynak_sayilari(conn)
+    assert sayilar["bddk"] == 3 and sayilar["spk"] == 2
+    assert sum(sayilar.values()) - len(genel) == 7
+
+
+def test_api_exposes_all_three_sources_via_kaynak_sayilari(monkeypatch, tmp_path):
+    """Aynı görünürlük HTTP katmanında da olmalı (kullanıcının gördüğü yol):
+    varsayılan profil tek karar döndürse bile yanıt üç kaynağı da bildirir."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_uc_kaynak.db")
+
+    conn = db.get_connection()
+    db.init_db(conn)
+    _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    conn.close()
+
+    client = backend.app.test_client()
+    varsayilan = client.get("/api/kararlar").get_json()
+    assert varsayilan["kaynak_sayilari"] == BEKLENEN_KAYNAK_SAYILARI
+    assert _kaynaklar(varsayilan["kararlar"]) == {"kvkk"}
+
+    finans = client.get("/api/kararlar?profil=finans").get_json()
+    assert finans["kaynak_sayilari"] == BEKLENEN_KAYNAK_SAYILARI
+    assert _kaynaklar(finans["kararlar"]) == {"kvkk", "bddk", "spk"}

@@ -1,8 +1,8 @@
 # KVKK Mevzuat Takip Aracı
 
-Türkiye'deki KOBİ'ler için KVKK Kurulu Kararları'nı otomatik tarayıp, seçilen
-şirket profiline (e-ticaret / finans / sağlık / eğitim / genel) göre hangi
-kararların ilgili olduğunu özetleyen basit bir araç.
+Türkiye'deki KOBİ'ler için KVKK, BDDK ve SPK kararlarını otomatik tarayıp,
+seçilen şirket profiline (e-ticaret / finans / sağlık / eğitim / genel) göre
+hangi kararların ilgili olduğunu özetleyen basit bir araç.
 
 **Bu araç hukuki tavsiye değildir, bilgi amaçlıdır. Kararlar için resmi
 kaynağı ve/veya bir avukatı kontrol edin.**
@@ -55,9 +55,27 @@ atlanır, diğerleri çalışır.
 
 ## Kapsam
 
-MVP sadece KVKK Kurulu Kararları'nı (son ~10 karar, liste sayfasının ilk
-sayfası) tarar. BDDK, SPK ve Resmi Gazete kaynakları henüz desteklenmiyor.
-PDF tam metin işlenmiyor — yalnızca liste sayfasındaki başlık kullanılıyor.
+Üç kaynak destekleniyor; her birinden en güncel ~10 karar taranır (liste
+sayfasının/API yanıtının ilk sayfası):
+
+| Kaynak | Ne taranıyor                     |
+| ------ | -------------------------------- |
+| KVKK   | Kurul Kararları                  |
+| BDDK   | Kurul Kararları                  |
+| SPK    | Kurul Kararları / İlke Kararları |
+
+Bir kaynağa erişilemezse diğerleri çalışmaya devam eder; hata `--scrape`
+çıktısında `logging.warning` ile (yığın iziyle birlikte) raporlanır.
+
+Kapsam dışı (ileriye dönük): Resmi Gazete kaynağı, PDF tam metin çıkarımı
+(yalnızca liste sayfasındaki başlık kullanılıyor) ve sayfalama — yani her
+kaynağın ilk sayfasından öteye gidilmiyor.
+
+Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK
+kararlarının çoğu doğal olarak `finans` etiketi alır. Bu yüzden varsayılan
+"Genel" profilinde görünmeyebilirler — sayfanın üstündeki
+"Toplam: … karar takip ediliyor." satırı her kaynaktan kaç karar
+kaydedildiğini profil seçiminden bağımsız olarak gösterir.
 
 ## Lisans
 

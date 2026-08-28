@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -6,7 +7,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import classifier
 import db
-import scraper
+from scrapers import bddk, kvkk, spk
 
 load_dotenv()
 
@@ -26,17 +27,32 @@ def api_kararlar():
     try:
         kararlar = db.get_kararlar_by_profil(conn, profil)
         son_guncelleme = db.get_son_guncelleme(conn)
+        # `son_guncelleme` gibi profilden bağımsızdır: seçili profil listeyi
+        # boşaltsa bile kullanıcı hangi kaynaktan kaç karar takip edildiğini
+        # görebilmeli.
+        kaynak_sayilari = db.get_kaynak_sayilari(conn)
     finally:
         conn.close()
-    return jsonify({"son_guncelleme": son_guncelleme, "kararlar": kararlar})
+    return jsonify({
+        "son_guncelleme": son_guncelleme,
+        "kaynak_sayilari": kaynak_sayilari,
+        "kararlar": kararlar,
+    })
 
 
 def run_scrape() -> None:
     conn = db.get_connection()
     try:
         db.init_db(conn)
-        yeni = scraper.scrape_and_store(conn)
-        print(f"{yeni} yeni karar bulundu.")
+        for isim, modul in [("kvkk", kvkk), ("bddk", bddk), ("spk", spk)]:
+            try:
+                yeni = modul.scrape_and_store(conn)
+                print(f"{isim}: {yeni} yeni karar bulundu.")
+            except Exception as exc:
+                # exc_info: bir kaynağın hatası diğerlerini durdurmadığı için
+                # bu satır her koşuda sessizce tekrarlanabilir. Traceback
+                # olmadan "spk scrape başarısız: 'link'" ayıklanamaz.
+                logging.warning("%s scrape başarısız: %s", isim, exc, exc_info=True)
         sonuc = classifier.classify_pending(conn)
         print(f"Sınıflandırma sonucu: {sonuc}")
     finally:

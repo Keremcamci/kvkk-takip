@@ -188,3 +188,41 @@ def test_no_hardcoded_model_name_fallback_in_source():
     kaynak = Path(classifier.__file__).read_text(encoding="utf-8")
     assert "claude-sonnet" not in kaynak
     assert 'os.environ.get("ANTHROPIC_MODEL",' not in kaynak
+
+
+def test_build_prompt_uses_correct_institution_name_per_kaynak():
+    assert "KVKK (Kişisel Verilerin Korunması Kurumu)" in classifier.build_prompt(
+        "Başlık", "2026-01-01", "özet"
+    )
+    assert "BDDK (Bankacılık Düzenleme ve Denetleme Kurumu)" in classifier.build_prompt(
+        "Başlık", "2026-01-01", "özet", kaynak="bddk"
+    )
+    assert "SPK (Sermaye Piyasası Kurulu)" in classifier.build_prompt(
+        "Başlık", "2026-01-01", "özet", kaynak="spk"
+    )
+
+
+class RecordingMessages:
+    def __init__(self, response):
+        self.response = response
+        self.captured_prompts = []
+
+    def create(self, **kwargs):
+        self.captured_prompts.append(kwargs["messages"][0]["content"])
+        return self.response
+
+
+class RecordingClient:
+    def __init__(self, response):
+        self.messages = RecordingMessages(response)
+
+
+def test_classify_pending_passes_kaynak_from_db_row_to_prompt(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="bddk", baslik="BDDK Kararı", tarih="2026-01-01",
+        kaynak_url="https://example.com/bddk1", ozet_ham="BDDK Kararı",
+    )
+    client = RecordingClient(_success_response())
+    classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
+    assert len(client.messages.captured_prompts) == 1
+    assert "BDDK (Bankacılık Düzenleme ve Denetleme Kurumu)" in client.messages.captured_prompts[0]

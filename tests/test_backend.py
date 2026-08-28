@@ -31,6 +31,58 @@ def test_api_kararlar_returns_son_guncelleme_and_filtered_list(monkeypatch, tmp_
     assert veri["kararlar"][0]["baslik"] == "Genel Karar"
 
 
+def test_api_kararlar_returns_kaynak_sayilari_for_every_profil(monkeypatch, tmp_path):
+    """Kaynak sayıları profil filtresinden BAĞIMSIZ olmalı.
+
+    Bulgu buydu: varsayılan "genel" profili yalnızca "genel" etiketli
+    kararları döndürüyor, bu yüzden BDDK/SPK kararları veritabanında
+    olmasına rağmen kullanıcıya hiçbir iz bırakmıyordu. Bu alan
+    `son_guncelleme` gibi davranır: hangi profil istenirse istensin aynı
+    değeri döner.
+    """
+    db_path = tmp_path / "test_backend_kaynak.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+
+    conn = db.get_connection()
+    db.init_db(conn)
+    # Gerçek dağılımın minik hali: KVKK "genel", BDDK/SPK "finans".
+    veriler = [
+        ("kvkk", "KVKK Kararı", "https://example.com/k1", ["genel"]),
+        ("bddk", "BDDK Kararı 1", "https://example.com/b1", ["finans"]),
+        ("bddk", "BDDK Kararı 2", "https://example.com/b2", ["finans"]),
+        ("spk", "SPK Kararı", "https://example.com/s1", ["finans"]),
+    ]
+    for kaynak, baslik, url, sektorler in veriler:
+        db.insert_karar_if_new(conn, kaynak=kaynak, baslik=baslik, tarih="2026-01-01", kaynak_url=url, ozet_ham="x")
+        karar_id = next(k["id"] for k in db.get_pending_kararlar(conn) if k["baslik"] == baslik)
+        db.update_karar_classification(conn, karar_id, sektorler, "özet", [], False, "")
+    conn.close()
+
+    client = backend.app.test_client()
+    beklenen = {"kvkk": 1, "bddk": 2, "spk": 1}
+
+    # Varsayılan (genel) profil: liste yalnızca 1 karar gösterse bile
+    # kullanıcı diğer 3 kararın var olduğunu görebilmeli.
+    varsayilan = client.get("/api/kararlar").get_json()
+    assert varsayilan["kaynak_sayilari"] == beklenen
+    assert len(varsayilan["kararlar"]) == 1
+
+    # Ve değer profile göre DEĞİŞMEMELİ.
+    for profil in ["genel", "e-ticaret", "finans", "saglik", "egitim"]:
+        veri = client.get(f"/api/kararlar?profil={profil}").get_json()
+        assert veri["kaynak_sayilari"] == beklenen, profil
+
+
+def test_api_kararlar_kaynak_sayilari_is_empty_when_db_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_backend_kaynak_bos.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
+    veri = backend.app.test_client().get("/api/kararlar").get_json()
+    assert veri["kaynak_sayilari"] == {}
+
+
 def test_api_kararlar_defaults_to_genel_profile_when_empty(monkeypatch, tmp_path):
     db_path = tmp_path / "test_backend2.db"
     monkeypatch.setattr(db, "DB_PATH", db_path)
@@ -86,3 +138,83 @@ def test_reset_failed_cli_does_not_also_run_scrape(monkeypatch, tmp_path, capsys
 
     assert cagrildi == []
     assert "0 karar" in capsys.readouterr().out
+
+
+def test_run_scrape_continues_when_one_source_fails(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape.db")
+
+    calls = []
+
+    monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: calls.append("kvkk") or 1)
+    monkeypatch.setattr(
+        backend.bddk, "scrape_and_store",
+        lambda conn: (_ for _ in ()).throw(RuntimeError("BDDK sitesi erişilemedi")),
+    )
+    monkeypatch.setattr(backend.spk, "scrape_and_store", lambda conn: calls.append("spk") or 2)
+    monkeypatch.setattr(
+        backend.classifier, "classify_pending",
+        lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0},
+    )
+
+    backend.run_scrape()
+
+    assert calls == ["kvkk", "spk"]
+    cikti = capsys.readouterr().out
+    assert "kvkk: 1 yeni karar" in cikti
+    assert "spk: 2 yeni karar" in cikti
+    # bddk başarısız olduğu için "bddk: ... yeni karar" satırı YOK — bu
+    # kaynağın hatası, print edilen özet çıktısına hiç girmemeli.
+    assert "bddk:" not in cikti
+
+
+def test_run_scrape_logs_warning_for_failed_source(monkeypatch, tmp_path, caplog):
+    import logging
+
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape2.db")
+    monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(
+        backend.bddk, "scrape_and_store",
+        lambda conn: (_ for _ in ()).throw(RuntimeError("BDDK sitesi erişilemedi")),
+    )
+    monkeypatch.setattr(backend.spk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(backend.classifier, "classify_pending", lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0})
+
+    with caplog.at_level(logging.WARNING):
+        backend.run_scrape()
+
+    assert "bddk" in caplog.text
+    assert "BDDK sitesi erişilemedi" in caplog.text
+
+
+def test_run_scrape_logs_traceback_for_failed_source(monkeypatch, tmp_path, caplog):
+    """Kaynak hatası ayıklanabilir olmalı: yığın izi (traceback) olmadan
+    log yalnızca "spk scrape başarısız: 'link'" der — hangi dosya/satır,
+    hangi alan olduğu bilinmez. Kaynaklar birbirini engellemediği için bu
+    hata her koşuda sessizce tekrarlanabilir; bu yüzden exc_info şart.
+    """
+    import logging
+
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape3.db")
+    monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(backend.bddk, "scrape_and_store", lambda conn: 0)
+    # Gerçekçi hata: SPK API kaydında "link" alanı eksik.
+    monkeypatch.setattr(
+        backend.spk, "scrape_and_store",
+        lambda conn: (_ for _ in ()).throw(KeyError("link")),
+    )
+    monkeypatch.setattr(
+        backend.classifier, "classify_pending",
+        lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        backend.run_scrape()
+
+    (kayit,) = [r for r in caplog.records if "scrape başarısız" in r.getMessage()]
+    assert kayit.exc_info is not None, "exc_info eksik — traceback yakalanmıyor"
+    assert kayit.exc_info[0] is KeyError
+    assert "Traceback" in caplog.text
+    assert "KeyError" in caplog.text
+    # Biçimlenmiş MESAJ metni değişmemeli (exc_info yalnızca traceback ekler),
+    # yani mevcut mesaj tabanlı testler bundan etkilenmez.
+    assert kayit.getMessage() == "spk scrape başarısız: 'link'"

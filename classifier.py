@@ -29,9 +29,15 @@ SEKTOR_ETIKETLEME_KURALI = (
     "fazla spesifik sektör."
 )
 
+KURUM_ADLARI = {
+    "kvkk": "KVKK (Kişisel Verilerin Korunması Kurumu)",
+    "bddk": "BDDK (Bankacılık Düzenleme ve Denetleme Kurumu)",
+    "spk": "SPK (Sermaye Piyasası Kurulu)",
+}
+
 KARAR_SINIFLANDIRMA_TOOL = {
     "name": "karar_sinifla",
-    "description": "Bir KVKK Kurulu kararını şirket profillerine göre sınıflandırır.",
+    "description": "Bir düzenleyici kurum kararını şirket profillerine göre sınıflandırır.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -63,9 +69,10 @@ KARAR_SINIFLANDIRMA_TOOL = {
 }
 
 
-def build_prompt(baslik: str, tarih, ozet_ham: str) -> str:
+def build_prompt(baslik: str, tarih, ozet_ham: str, kaynak: str = "kvkk") -> str:
+    kurum_adi = KURUM_ADLARI.get(kaynak, kaynak)
     return (
-        "Aşağıda bir KVKK (Kişisel Verilerin Korunması Kurumu) kurul kararının "
+        f"Aşağıda bir {kurum_adi} kararının "
         "başlığı verilmiştir. Bu kararı karar_sinifla aracını kullanarak "
         "sınıflandır.\n\n"
         "Sektör etiketleme kuralı (ÖNEMLİ): "
@@ -94,8 +101,8 @@ def _get_model() -> str:
     return model
 
 
-def classify_karar(client, baslik, tarih, ozet_ham, model, sleep_fn=time.sleep) -> dict:
-    prompt = build_prompt(baslik, tarih, ozet_ham)
+def classify_karar(client, baslik, tarih, ozet_ham, model, kaynak: str = "kvkk", sleep_fn=time.sleep) -> dict:
+    prompt = build_prompt(baslik, tarih, ozet_ham, kaynak)
     son_hata: Exception | None = None
     for deneme in range(MAX_BACKOFF_ATTEMPTS):
         try:
@@ -127,7 +134,7 @@ def classify_pending(conn, client=None, model=None, sleep_fn=time.sleep) -> dict
         try:
             classification = classify_karar(
                 client, karar["baslik"], karar["tarih"], karar["ozet_ham"], model,
-                sleep_fn=sleep_fn,
+                kaynak=karar["kaynak"], sleep_fn=sleep_fn,
             )
             db.update_karar_classification(
                 conn,

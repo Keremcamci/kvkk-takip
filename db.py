@@ -49,7 +49,8 @@ def insert_karar_if_new(conn, kaynak, baslik, tarih, kaynak_url, ozet_ham) -> bo
 
 def get_pending_kararlar(conn) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, baslik, tarih, ozet_ham, deneme_sayisi FROM kararlar WHERE islendi_mi = 0"
+        "SELECT id, kaynak, baslik, tarih, ozet_ham, deneme_sayisi "
+        "FROM kararlar WHERE islendi_mi = 0"
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -102,7 +103,7 @@ def reset_failed_kararlar(conn) -> int:
 
 def get_kararlar_by_profil(conn, profil) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, baslik, tarih, llm_ozet, sektorler, yapilmasi_gerekenler, "
+        "SELECT id, kaynak, baslik, tarih, llm_ozet, sektorler, yapilmasi_gerekenler, "
         "aciliyet_var, aciliyet_aciklama, kaynak_url FROM kararlar "
         "WHERE islendi_mi = 1 ORDER BY tarih DESC"
     ).fetchall()
@@ -112,6 +113,7 @@ def get_kararlar_by_profil(conn, profil) -> list[dict]:
         if profil in sektorler or "genel" in sektorler:
             sonuc.append({
                 "id": row["id"],
+                "kaynak": row["kaynak"],
                 "baslik": row["baslik"],
                 "tarih": row["tarih"],
                 "ozet": row["llm_ozet"],
@@ -122,6 +124,20 @@ def get_kararlar_by_profil(conn, profil) -> list[dict]:
                 "kaynak_url": row["kaynak_url"],
             })
     return sonuc
+
+
+def get_kaynak_sayilari(conn) -> dict[str, int]:
+    """İşlenmiş karar sayısını kaynağa (kvkk/bddk/spk) göre döner.
+
+    Profil filtresinden bağımsızdır. Varsayılan "genel" profili yalnızca
+    "genel" etiketli kararları gösterdiği için, BDDK/SPK kararları
+    veritabanında dururken kullanıcı bunlardan hiçbirini göremiyordu. Bu
+    sayım arayüzde her zaman görünen bir özet satırı olarak gösterilir.
+    """
+    rows = conn.execute(
+        "SELECT kaynak, COUNT(*) AS sayi FROM kararlar WHERE islendi_mi = 1 GROUP BY kaynak"
+    ).fetchall()
+    return {row["kaynak"]: row["sayi"] for row in rows}
 
 
 def get_son_guncelleme(conn) -> str | None:

@@ -150,3 +150,75 @@ def test_get_kararlar_by_profil_genel_only_returns_genel_tagged(conn):
 
     genel_sonuc = db.get_kararlar_by_profil(conn, "genel")
     assert [k["baslik"] for k in genel_sonuc] == ["Genel Karar"]
+
+
+def test_get_pending_kararlar_includes_kaynak(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="bddk", baslik="BDDK Kararı", tarih="2026-01-01",
+        kaynak_url="https://example.com/b1", ozet_ham="x",
+    )
+    bekleyenler = db.get_pending_kararlar(conn)
+    assert bekleyenler[0]["kaynak"] == "bddk"
+
+
+def test_get_kararlar_by_profil_includes_kaynak(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="spk", baslik="SPK Kararı", tarih="2026-01-01",
+        kaynak_url="https://example.com/spk1", ozet_ham="x",
+    )
+    karar_id = db.get_pending_kararlar(conn)[0]["id"]
+    db.update_karar_classification(conn, karar_id, ["genel"], "özet", [], False, "")
+    sonuc = db.get_kararlar_by_profil(conn, "genel")
+    assert sonuc[0]["kaynak"] == "spk"
+
+
+def _ekle_ve_isle(conn, kaynak, baslik, url, sektorler=None):
+    """Bir karar ekleyip sınıflandırılmış (islendi_mi = 1) hale getirir."""
+    db.insert_karar_if_new(
+        conn, kaynak=kaynak, baslik=baslik, tarih="2026-01-01",
+        kaynak_url=url, ozet_ham="x",
+    )
+    karar_id = next(
+        k["id"] for k in db.get_pending_kararlar(conn) if k["baslik"] == baslik
+    )
+    db.update_karar_classification(
+        conn, karar_id, sektorler or ["genel"], "özet", [], False, ""
+    )
+
+
+def test_get_kaynak_sayilari_counts_per_kaynak(conn):
+    """Kaynak özeti, profil filtresinden bağımsız olarak her kaynağın
+    işlenmiş karar sayısını vermeli."""
+    _ekle_ve_isle(conn, "kvkk", "KVKK 1", "https://example.com/k1", ["genel"])
+    _ekle_ve_isle(conn, "kvkk", "KVKK 2", "https://example.com/k2", ["saglik"])
+    _ekle_ve_isle(conn, "bddk", "BDDK 1", "https://example.com/b1", ["finans"])
+    _ekle_ve_isle(conn, "bddk", "BDDK 2", "https://example.com/b2", ["finans"])
+    _ekle_ve_isle(conn, "bddk", "BDDK 3", "https://example.com/b3", ["finans"])
+    _ekle_ve_isle(conn, "spk", "SPK 1", "https://example.com/s1", ["finans"])
+
+    assert db.get_kaynak_sayilari(conn) == {"kvkk": 2, "bddk": 3, "spk": 1}
+
+
+def test_get_kaynak_sayilari_ignores_pending_and_failed_kararlar(conn):
+    """Yalnızca islendi_mi = 1 sayılmalı: bekleyen (0) ve kalıcı hataya
+    düşmüş (-1) kararlar arayüzde görünmediği için sayıma da girmemeli."""
+    _ekle_ve_isle(conn, "kvkk", "İşlenmiş", "https://example.com/p1")
+    db.insert_karar_if_new(
+        conn, kaynak="bddk", baslik="Bekleyen", tarih="2026-01-01",
+        kaynak_url="https://example.com/p2", ozet_ham="x",
+    )
+    db.insert_karar_if_new(
+        conn, kaynak="spk", baslik="Kalıcı Hata", tarih="2026-01-01",
+        kaynak_url="https://example.com/p3", ozet_ham="x",
+    )
+    hatali_id = next(
+        k["id"] for k in db.get_pending_kararlar(conn) if k["baslik"] == "Kalıcı Hata"
+    )
+    for _ in range(3):
+        db.mark_karar_failed(conn, hatali_id)
+
+    assert db.get_kaynak_sayilari(conn) == {"kvkk": 1}
+
+
+def test_get_kaynak_sayilari_returns_empty_dict_when_no_kararlar(conn):
+    assert db.get_kaynak_sayilari(conn) == {}

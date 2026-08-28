@@ -202,3 +202,124 @@ def test_guvenliUrl_rejects_non_http_schemes():
     assert sonuclar[:7] == [None] * 7
     assert sonuclar[7] == "https://ok.example"
     assert sonuclar[8] == "HTTPS://ok.example"
+
+
+@node_gerekli
+def test_kararKart_renders_kaynak_rozeti():
+    karar = {
+        "baslik": "Karar",
+        "tarih": "2026-01-01",
+        "ozet": "özet",
+        "yapilmasi_gerekenler": [],
+        "aciliyet_var": False,
+        "aciliyet_aciklama": "",
+        "kaynak_url": "https://example.com/1",
+        "kaynak": "bddk",
+    }
+    (html,) = _node_calistir(
+        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+    )
+    span = BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet")
+    assert span is not None
+    assert span.get_text(strip=True) == "BDDK"
+
+
+@node_gerekli
+def test_kararKart_omits_kaynak_rozeti_when_kaynak_missing():
+    karar = {
+        "baslik": "Karar",
+        "tarih": "2026-01-01",
+        "ozet": "özet",
+        "yapilmasi_gerekenler": [],
+        "aciliyet_var": False,
+        "aciliyet_aciklama": "",
+        "kaynak_url": "https://example.com/1",
+    }
+    (html,) = _node_calistir(
+        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+    )
+    assert BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet") is None
+
+
+# --- 3. Kaynak sayısı özeti ---------------------------------------------
+#
+# Bulgu: varsayılan "genel" profili yalnızca "genel" etiketli kararları
+# gösteriyor; BDDK/SPK kararlarının hepsi "finans" etiketlendiği için
+# --scrape sonrası tarayıcıyı açan kullanıcı 20 yeni kararın varlığına dair
+# HİÇBİR iz görmüyordu. Çözüm: profilden bağımsız, her zaman görünen bir
+# kaynak sayısı satırı.
+
+
+def test_source_has_kaynak_ozet_element_and_uses_textContent():
+    """KAYNAK seviyesi: eleman var mı ve textContent ile mi yazılıyor.
+
+    innerHTML DEĞİL: metin saf sayı + sabit kaynak adlarından oluşsa da
+    kaçırma gerektirmeyen bir yol seçmek bu satırı gelecekteki içerik
+    değişikliklerine karşı da güvenli tutar.
+    """
+    kaynak = _kaynak()
+    assert 'id="kaynak-ozet"' in kaynak
+    assert "kaynakOzetEl.textContent = kaynakOzetMetni(veri.kaynak_sayilari)" in kaynak
+    assert "kaynakOzetEl.innerHTML" not in kaynak
+
+
+def test_source_updates_kaynak_ozet_inside_yukle():
+    """Özet, `son_guncelleme` ile aynı yerde — yani her yukle() çağrısında
+    (profil değişince de) güncellenmeli, yalnızca ilk yüklemede değil."""
+    yukle_kaynagi = _js_fonksiyonu(_kaynak(), "yukle")
+    assert "kaynakOzetEl.textContent" in yukle_kaynagi
+    assert "sonGuncellemeEl.textContent" in yukle_kaynagi
+    # Erken `return` (boş liste dalı) özet satırını atlamamalı: sayı
+    # satırının asıl işe yaradığı durum tam da listenin boş olduğu durum.
+    assert yukle_kaynagi.index("kaynakOzetEl.textContent") < yukle_kaynagi.index("return;")
+
+
+@node_gerekli
+def test_kaynakOzetMetni_lists_all_three_sources_in_fixed_order():
+    """Sözlük SQLite'tan alfabetik (bddk, kvkk, spk) gelir; gösterim sırası
+    yine de KVKK, BDDK, SPK olmalı."""
+    (metin,) = _node_calistir(
+        ["kaynakOzetMetni"],
+        '[kaynakOzetMetni({"bddk": 10, "kvkk": 8, "spk": 10})]',
+    )
+    assert metin == "Toplam: 8 KVKK, 10 BDDK, 10 SPK karar takip ediliyor."
+
+
+@node_gerekli
+def test_kaynakOzetMetni_omits_sources_with_no_kararlar():
+    """ASIL DAVRANIŞ: taranmamış kaynak "0 BDDK" olarak GÖSTERİLMEZ,
+    tamamen atlanır."""
+    yalniz_kvkk, sifir_bddk, kvkk_spk = _node_calistir(
+        ["kaynakOzetMetni"],
+        '[kaynakOzetMetni({"kvkk": 8}), '
+        'kaynakOzetMetni({"kvkk": 8, "bddk": 0}), '
+        'kaynakOzetMetni({"kvkk": 8, "spk": 10})]',
+    )
+    assert yalniz_kvkk == "Toplam: 8 KVKK karar takip ediliyor."
+    assert sifir_bddk == "Toplam: 8 KVKK karar takip ediliyor."
+    assert "BDDK" not in sifir_bddk and "0" not in sifir_bddk
+    # Aradaki kaynak eksikse kalanların sırası bozulmamalı.
+    assert kvkk_spk == "Toplam: 8 KVKK, 10 SPK karar takip ediliyor."
+
+
+@node_gerekli
+def test_kaynakOzetMetni_returns_empty_string_when_nothing_scraped():
+    """Hiç veri yokken satır tamamen boş kalmalı — "Toplam: karar takip
+    ediliyor." gibi bozuk bir cümle çıkmamalı."""
+    sonuclar = _node_calistir(
+        ["kaynakOzetMetni"],
+        "[kaynakOzetMetni({}), kaynakOzetMetni(undefined), kaynakOzetMetni(null), "
+        'kaynakOzetMetni({"kvkk": 0, "bddk": 0, "spk": 0})]',
+    )
+    assert sonuclar == ["", "", "", ""]
+
+
+@node_gerekli
+def test_kaynakOzetMetni_still_shows_an_unknown_future_kaynak():
+    """Bu özetin var olma sebebi "yeni kaynak sessizce görünmez oldu"
+    bulgusu; sabit listede olmayan bir kaynak da aynı tuzağa düşmemeli."""
+    (metin,) = _node_calistir(
+        ["kaynakOzetMetni"],
+        '[kaynakOzetMetni({"kvkk": 8, "resmigazete": 5})]',
+    )
+    assert metin == "Toplam: 8 KVKK, 5 RESMIGAZETE karar takip ediliyor."
