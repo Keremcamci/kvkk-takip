@@ -6,7 +6,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import classifier
 import db
-import scraper
+from scrapers import kvkk
 
 load_dotenv()
 
@@ -35,7 +35,7 @@ def run_scrape() -> None:
     conn = db.get_connection()
     try:
         db.init_db(conn)
-        yeni = scraper.scrape_and_store(conn)
+        yeni = kvkk.scrape_and_store(conn)
         print(f"{yeni} yeni karar bulundu.")
         sonuc = classifier.classify_pending(conn)
         print(f"Sınıflandırma sonucu: {sonuc}")

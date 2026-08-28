@@ -17,7 +17,7 @@ from unittest.mock import patch
 import backend
 import classifier
 import db
-import scraper
+from scrapers import kvkk
 
 FIXTURE = Path(__file__).parent / "fixtures" / "kvkk_kararlari_sample.html"
 
@@ -77,8 +77,8 @@ class SahteClient:
 def _pipeline_calistir(conn, client) -> dict:
     """scraper + classifier'ı gerçek fixture HTML'i üzerinde uçtan uca koşar."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scraper.fetch_page", return_value=html):
-        scraper.scrape_and_store(conn)
+    with patch("scrapers.kvkk.fetch_page", return_value=html):
+        kvkk.scrape_and_store(conn)
     return classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
     )
@@ -161,8 +161,8 @@ def test_reset_failed_unsticks_kararlar_and_pipeline_recovers(conn):
     """API anahtarı hatalıyken kalıcı hataya düşen kararlar, anahtar
     düzeltilip --reset-failed çalıştırıldıktan sonra sınıflandırılabilmeli."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scraper.fetch_page", return_value=html):
-        scraper.scrape_and_store(conn)
+    with patch("scrapers.kvkk.fetch_page", return_value=html):
+        kvkk.scrape_and_store(conn)
 
     class BozukClient:
         class messages:
