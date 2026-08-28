@@ -49,7 +49,10 @@ def run_scrape() -> None:
                 yeni = modul.scrape_and_store(conn)
                 print(f"{isim}: {yeni} yeni karar bulundu.")
             except Exception as exc:
-                logging.warning("%s scrape başarısız: %s", isim, exc)
+                # exc_info: bir kaynağın hatası diğerlerini durdurmadığı için
+                # bu satır her koşuda sessizce tekrarlanabilir. Traceback
+                # olmadan "spk scrape başarısız: 'link'" ayıklanamaz.
+                logging.warning("%s scrape başarısız: %s", isim, exc, exc_info=True)
         sonuc = classifier.classify_pending(conn)
         print(f"Sınıflandırma sonucu: {sonuc}")
     finally:

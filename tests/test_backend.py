@@ -185,3 +185,36 @@ def test_run_scrape_logs_warning_for_failed_source(monkeypatch, tmp_path, caplog
     assert "bddk" in caplog.text
     assert "BDDK sitesi erişilemedi" in caplog.text
 
+
+def test_run_scrape_logs_traceback_for_failed_source(monkeypatch, tmp_path, caplog):
+    """Kaynak hatası ayıklanabilir olmalı: yığın izi (traceback) olmadan
+    log yalnızca "spk scrape başarısız: 'link'" der — hangi dosya/satır,
+    hangi alan olduğu bilinmez. Kaynaklar birbirini engellemediği için bu
+    hata her koşuda sessizce tekrarlanabilir; bu yüzden exc_info şart.
+    """
+    import logging
+
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape3.db")
+    monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(backend.bddk, "scrape_and_store", lambda conn: 0)
+    # Gerçekçi hata: SPK API kaydında "link" alanı eksik.
+    monkeypatch.setattr(
+        backend.spk, "scrape_and_store",
+        lambda conn: (_ for _ in ()).throw(KeyError("link")),
+    )
+    monkeypatch.setattr(
+        backend.classifier, "classify_pending",
+        lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        backend.run_scrape()
+
+    (kayit,) = [r for r in caplog.records if "scrape başarısız" in r.getMessage()]
+    assert kayit.exc_info is not None, "exc_info eksik — traceback yakalanmıyor"
+    assert kayit.exc_info[0] is KeyError
+    assert "Traceback" in caplog.text
+    assert "KeyError" in caplog.text
+    # Biçimlenmiş MESAJ metni değişmemeli (exc_info yalnızca traceback ekler),
+    # yani mevcut mesaj tabanlı testler bundan etkilenmez.
+    assert kayit.getMessage() == "spk scrape başarısız: 'link'"
