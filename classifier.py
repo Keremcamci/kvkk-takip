@@ -1,0 +1,170 @@
+import logging
+import os
+import time
+
+from anthropic import Anthropic
+
+import db
+
+MAX_BACKOFF_ATTEMPTS = 3
+BACKOFF_BASE_SECONDS = 1
+MAX_KARAR_DENEME = 3
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+# Aracın tüm değeri "kararları SİZİN şirket tipinize göre filtreliyoruz"
+# vaadinde. Model her karara "genel" verirse her profil aynı listeyi görür ve
+# filtre işlevsiz kalır (canlı testte 10/10 karar "genel" etiketlenmişti).
+# Bu yüzden "genel" bilinçli olarak dar tanımlanır; kural hem tool şemasında
+# hem prompt'ta tekrarlanır.
+SEKTOR_ETIKETLEME_KURALI = (
+    '"genel" etiketini SADECE karar dört sektörün hepsini '
+    "(e-ticaret, finans, sağlık, eğitim) eşit ölçüde ve aynı şekilde "
+    "ilgilendiriyorsa kullan. Karar belirli bir veya birkaç sektöre daha çok "
+    "uyuyorsa (örn. özel nitelikli/sağlık verisi işleyenler, çevrimiçi satış "
+    "yapanlar, kredi ve ödeme kuruluşları, öğrenci verisi tutan kurumlar) "
+    'yalnızca o sektör(ler)i etiketle, "genel" EKLEME. "genel" nadiren doğru '
+    "cevaptır; kararların çoğu aslında belirli sektörleri ilgilendirir. Emin "
+    'değilsen "genel" yerine en uygun spesifik sektörü seç. "genel" diğer '
+    'etiketlerle birlikte kullanılmaz: ya yalnızca "genel", ya bir veya daha '
+    "fazla spesifik sektör."
+)
+
+KARAR_SINIFLANDIRMA_TOOL = {
+    "name": "karar_sinifla",
+    "description": "Bir KVKK Kurulu kararını şirket profillerine göre sınıflandırır.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "sektorler": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": ["e-ticaret", "finans", "saglik", "egitim", "genel"],
+                },
+                "description": (
+                    "Bu kararın ilgilendirdiği şirket profilleri. "
+                    + SEKTOR_ETIKETLEME_KURALI
+                ),
+            },
+            "ozet": {"type": "string", "description": "2-3 cümlelik özet."},
+            "yapilmasi_gerekenler": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Şirketin yapması gereken somut adımlar.",
+            },
+            "aciliyet_var": {"type": "boolean"},
+            "aciliyet_aciklama": {"type": "string"},
+        },
+        "required": [
+            "sektorler", "ozet", "yapilmasi_gerekenler",
+            "aciliyet_var", "aciliyet_aciklama",
+        ],
+    },
+}
+
+
+def build_prompt(baslik: str, tarih, ozet_ham: str) -> str:
+    return (
+        "Aşağıda bir KVKK (Kişisel Verilerin Korunması Kurumu) kurul kararının "
+        "başlığı verilmiştir. Bu kararı karar_sinifla aracını kullanarak "
+        "sınıflandır.\n\n"
+        "Sektör etiketleme kuralı (ÖNEMLİ): "
+        f"{SEKTOR_ETIKETLEME_KURALI}\n\n"
+        f"Tarih: {tarih or 'bilinmiyor'}\n"
+        f"Başlık/Özet: {ozet_ham}\n"
+    )
+
+
+def _is_retryable(exc: Exception) -> bool:
+    return getattr(exc, "status_code", None) in RETRYABLE_STATUS_CODES
+
+
+def _get_client() -> Anthropic:
+    return Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+
+def _get_model() -> str:
+    # Model adı asla kod içine sabit yazılmaz (plan kısıtı) — eksikse
+    # sessizce bir varsayılana düşmek yerine net bir hata ver.
+    model = os.environ.get("ANTHROPIC_MODEL")
+    if not model:
+        raise RuntimeError(
+            "ANTHROPIC_MODEL ortam değişkeni ayarlanmamış (.env dosyasını kontrol edin)"
+        )
+    return model
+
+
+def classify_karar(client, baslik, tarih, ozet_ham, model, sleep_fn=time.sleep) -> dict:
+    prompt = build_prompt(baslik, tarih, ozet_ham)
+    son_hata: Exception | None = None
+    for deneme in range(MAX_BACKOFF_ATTEMPTS):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=1024,
+                tools=[KARAR_SINIFLANDIRMA_TOOL],
+                tool_choice={"type": "tool", "name": "karar_sinifla"},
+                messages=[{"role": "user", "content": prompt}],
+            )
+            for block in response.content:
+                if getattr(block, "type", None) == "tool_use" and block.name == "karar_sinifla":
+                    return block.input
+            raise RuntimeError("Anthropic yanıtında tool_use bloğu bulunamadı")
+        except Exception as exc:
+            son_hata = exc
+            son_deneme_mi = deneme == MAX_BACKOFF_ATTEMPTS - 1
+            if not _is_retryable(exc) or son_deneme_mi:
+                raise RuntimeError(f"Sınıflandırma başarısız: {son_hata}") from son_hata
+            sleep_fn(BACKOFF_BASE_SECONDS * (2 ** deneme))
+    raise RuntimeError(f"Sınıflandırma başarısız: {son_hata}")
+
+
+def classify_pending(conn, client=None, model=None, sleep_fn=time.sleep) -> dict:
+    client = client or _get_client()
+    model = model or _get_model()
+    sonuc = {"basarili": 0, "basarisiz": 0, "kalici_hata": 0}
+    for karar in db.get_pending_kararlar(conn):
+        try:
+            classification = classify_karar(
+                client, karar["baslik"], karar["tarih"], karar["ozet_ham"], model,
+                sleep_fn=sleep_fn,
+            )
+            db.update_karar_classification(
+                conn,
+                karar["id"],
+                classification["sektorler"],
+                classification["ozet"],
+                classification["yapilmasi_gerekenler"],
+                classification["aciliyet_var"],
+                classification["aciliyet_aciklama"],
+            )
+            sonuc["basarili"] += 1
+        except Exception as exc:
+            logging.warning("Karar %s sınıflandırılamadı: %s", karar["id"], exc)
+            kalici_mi = db.mark_karar_failed(conn, karar["id"])
+            if kalici_mi:
+                logging.warning(
+                    "Karar %s kalıcı hata olarak işaretlendi (%s deneme). "
+                    "Düzelttikten sonra: python backend.py --reset-failed",
+                    karar["id"],
+                    MAX_KARAR_DENEME,
+                )
+                sonuc["kalici_hata"] += 1
+            else:
+                sonuc["basarisiz"] += 1
+    return sonuc
+
+
+if __name__ == "__main__":
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    connection = db.get_connection()
+    db.init_db(connection)
+    sonuc = classify_pending(connection)
+    print(f"Sınıflandırma sonucu: {sonuc}")
+    for karar in db.get_kararlar_by_profil(connection, "genel"):
+        print(f"- [{karar['tarih']}] {karar['baslik'][:80]}...")
+        print(f"  Sektörler: {karar['sektorler']}")
+        print(f"  Özet: {karar['ozet']}")
+    connection.close()
