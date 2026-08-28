@@ -86,3 +86,49 @@ def test_reset_failed_cli_does_not_also_run_scrape(monkeypatch, tmp_path, capsys
 
     assert cagrildi == []
     assert "0 karar" in capsys.readouterr().out
+
+
+def test_run_scrape_continues_when_one_source_fails(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape.db")
+
+    calls = []
+
+    monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: calls.append("kvkk") or 1)
+    monkeypatch.setattr(
+        backend.bddk, "scrape_and_store",
+        lambda conn: (_ for _ in ()).throw(RuntimeError("BDDK sitesi erişilemedi")),
+    )
+    monkeypatch.setattr(backend.spk, "scrape_and_store", lambda conn: calls.append("spk") or 2)
+    monkeypatch.setattr(
+        backend.classifier, "classify_pending",
+        lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0},
+    )
+
+    backend.run_scrape()
+
+    assert calls == ["kvkk", "spk"]
+    cikti = capsys.readouterr().out
+    assert "kvkk: 1 yeni karar" in cikti
+    assert "spk: 2 yeni karar" in cikti
+    # bddk başarısız olduğu için "bddk: ... yeni karar" satırı YOK — bu
+    # kaynağın hatası, print edilen özet çıktısına hiç girmemeli.
+    assert "bddk:" not in cikti
+
+
+def test_run_scrape_logs_warning_for_failed_source(monkeypatch, tmp_path, caplog):
+    import logging
+
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape2.db")
+    monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(
+        backend.bddk, "scrape_and_store",
+        lambda conn: (_ for _ in ()).throw(RuntimeError("BDDK sitesi erişilemedi")),
+    )
+    monkeypatch.setattr(backend.spk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(backend.classifier, "classify_pending", lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0})
+
+    with caplog.at_level(logging.WARNING):
+        backend.run_scrape()
+
+    assert "bddk" in caplog.text
+    assert "BDDK sitesi erişilemedi" in caplog.text

@@ -202,3 +202,40 @@ def test_guvenliUrl_rejects_non_http_schemes():
     assert sonuclar[:7] == [None] * 7
     assert sonuclar[7] == "https://ok.example"
     assert sonuclar[8] == "HTTPS://ok.example"
+
+
+@node_gerekli
+def test_kararKart_renders_kaynak_rozeti():
+    karar = {
+        "baslik": "Karar",
+        "tarih": "2026-01-01",
+        "ozet": "özet",
+        "yapilmasi_gerekenler": [],
+        "aciliyet_var": False,
+        "aciliyet_aciklama": "",
+        "kaynak_url": "https://example.com/1",
+        "kaynak": "bddk",
+    }
+    (html,) = _node_calistir(
+        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+    )
+    span = BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet")
+    assert span is not None
+    assert span.get_text(strip=True) == "BDDK"
+
+
+@node_gerekli
+def test_kararKart_omits_kaynak_rozeti_when_kaynak_missing():
+    karar = {
+        "baslik": "Karar",
+        "tarih": "2026-01-01",
+        "ozet": "özet",
+        "yapilmasi_gerekenler": [],
+        "aciliyet_var": False,
+        "aciliyet_aciklama": "",
+        "kaynak_url": "https://example.com/1",
+    }
+    (html,) = _node_calistir(
+        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+    )
+    assert BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet") is None

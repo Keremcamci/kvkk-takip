@@ -159,3 +159,14 @@ def test_get_pending_kararlar_includes_kaynak(conn):
     )
     bekleyenler = db.get_pending_kararlar(conn)
     assert bekleyenler[0]["kaynak"] == "bddk"
+
+
+def test_get_kararlar_by_profil_includes_kaynak(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="spk", baslik="SPK Kararı", tarih="2026-01-01",
+        kaynak_url="https://example.com/spk1", ozet_ham="x",
+    )
+    karar_id = db.get_pending_kararlar(conn)[0]["id"]
+    db.update_karar_classification(conn, karar_id, ["genel"], "özet", [], False, "")
+    sonuc = db.get_kararlar_by_profil(conn, "genel")
+    assert sonuc[0]["kaynak"] == "spk"

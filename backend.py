@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -6,7 +7,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import classifier
 import db
-from scrapers import kvkk
+from scrapers import bddk, kvkk, spk
 
 load_dotenv()
 
@@ -35,8 +36,12 @@ def run_scrape() -> None:
     conn = db.get_connection()
     try:
         db.init_db(conn)
-        yeni = kvkk.scrape_and_store(conn)
-        print(f"{yeni} yeni karar bulundu.")
+        for isim, modul in [("kvkk", kvkk), ("bddk", bddk), ("spk", spk)]:
+            try:
+                yeni = modul.scrape_and_store(conn)
+                print(f"{isim}: {yeni} yeni karar bulundu.")
+            except Exception as exc:
+                logging.warning("%s scrape başarısız: %s", isim, exc)
         sonuc = classifier.classify_pending(conn)
         print(f"Sınıflandırma sonucu: {sonuc}")
     finally:

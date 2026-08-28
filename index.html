@@ -13,6 +13,7 @@
   .karar { background: #ffffff; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
   .karar h3 { margin: 0 0 0.4rem 0; font-size: 1.05rem; }
   .tarih { color: #666; font-size: 0.85rem; }
+  .kaynak-rozet { display: inline-block; background: #666; color: #fff; font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.4rem; vertical-align: middle; }
   .aciliyet { display: inline-block; background: #d32f2f; color: #fff; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 3px; margin-left: 0.5rem; }
   .yapilmasi-gerekenler { margin: 0.5rem 0 0 0; padding-left: 1.2rem; }
   .bos { color: #666; font-style: italic; }
@@ -79,6 +80,9 @@
     }
 
     function kararKart(karar) {
+      const kaynakRozetiHtml = karar.kaynak
+        ? `<span class="kaynak-rozet">${esc(karar.kaynak.toUpperCase())}</span>`
+        : "";
       const aciliyetHtml = karar.aciliyet_var
         ? `<span class="aciliyet" title="${escAttr(karar.aciliyet_aciklama)}">Aciliyet</span>`
         : "";
@@ -91,7 +95,7 @@
         : "";
       return `
         <div class="karar">
-          <h3>${esc(karar.baslik)}${aciliyetHtml}</h3>
+          <h3>${kaynakRozetiHtml}${esc(karar.baslik)}${aciliyetHtml}</h3>
           <div class="tarih">${esc(karar.tarih)}</div>
           <p>${esc(karar.ozet)}</p>
           ${maddeler ? `<ul class="yapilmasi-gerekenler">${maddeler}</ul>` : ""}

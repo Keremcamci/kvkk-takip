@@ -103,7 +103,7 @@ def reset_failed_kararlar(conn) -> int:
 
 def get_kararlar_by_profil(conn, profil) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, baslik, tarih, llm_ozet, sektorler, yapilmasi_gerekenler, "
+        "SELECT id, kaynak, baslik, tarih, llm_ozet, sektorler, yapilmasi_gerekenler, "
         "aciliyet_var, aciliyet_aciklama, kaynak_url FROM kararlar "
         "WHERE islendi_mi = 1 ORDER BY tarih DESC"
     ).fetchall()
@@ -113,6 +113,7 @@ def get_kararlar_by_profil(conn, profil) -> list[dict]:
         if profil in sektorler or "genel" in sektorler:
             sonuc.append({
                 "id": row["id"],
+                "kaynak": row["kaynak"],
                 "baslik": row["baslik"],
                 "tarih": row["tarih"],
                 "ozet": row["llm_ozet"],
