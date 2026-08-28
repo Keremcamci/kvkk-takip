@@ -49,7 +49,8 @@ def insert_karar_if_new(conn, kaynak, baslik, tarih, kaynak_url, ozet_ham) -> bo
 
 def get_pending_kararlar(conn) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, baslik, tarih, ozet_ham, deneme_sayisi FROM kararlar WHERE islendi_mi = 0"
+        "SELECT id, kaynak, baslik, tarih, ozet_ham, deneme_sayisi "
+        "FROM kararlar WHERE islendi_mi = 0"
     ).fetchall()
     return [dict(row) for row in rows]
 

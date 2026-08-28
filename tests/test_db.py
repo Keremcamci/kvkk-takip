@@ -150,3 +150,12 @@ def test_get_kararlar_by_profil_genel_only_returns_genel_tagged(conn):
 
     genel_sonuc = db.get_kararlar_by_profil(conn, "genel")
     assert [k["baslik"] for k in genel_sonuc] == ["Genel Karar"]
+
+
+def test_get_pending_kararlar_includes_kaynak(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="bddk", baslik="BDDK Kararı", tarih="2026-01-01",
+        kaynak_url="https://example.com/b1", ozet_ham="x",
+    )
+    bekleyenler = db.get_pending_kararlar(conn)
+    assert bekleyenler[0]["kaynak"] == "bddk"
