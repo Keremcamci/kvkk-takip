@@ -127,7 +127,7 @@ def test_kararKart_quote_in_aciliyet_aciklama_does_not_inject_attribute():
         "kaynak_url": "https://example.com/1",
     }
     (html,) = _node_calistir(
-        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+        ["esc", "escAttr", "guvenliUrl", "kaynakEtiketi", "kararKart"], f"[kararKart({json.dumps(karar)})]"
     )
     span = BeautifulSoup(html, "html.parser").select_one("span.aciliyet")
     assert span is not None
@@ -160,7 +160,7 @@ def test_kararKart_omits_link_for_javascript_scheme_url():
         "kaynak_url": "javascript:alert(1)",
     }
     (html,) = _node_calistir(
-        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+        ["esc", "escAttr", "guvenliUrl", "kaynakEtiketi", "kararKart"], f"[kararKart({json.dumps(karar)})]"
     )
     assert "javascript:" not in html
     assert "<a" not in html
@@ -183,7 +183,7 @@ def test_kararKart_renders_link_for_http_and_https_urls():
         return json.dumps(karar)
 
     https_html, http_html = _node_calistir(
-        ["esc", "escAttr", "guvenliUrl", "kararKart"],
+        ["esc", "escAttr", "guvenliUrl", "kaynakEtiketi", "kararKart"],
         f"[kararKart({kart('https://example.com/a?x=1&y=2')}), "
         f"kararKart({kart('http://example.com/b')})]",
     )
@@ -217,7 +217,7 @@ def test_kararKart_renders_kaynak_rozeti():
         "kaynak": "bddk",
     }
     (html,) = _node_calistir(
-        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+        ["esc", "escAttr", "guvenliUrl", "kaynakEtiketi", "kararKart"], f"[kararKart({json.dumps(karar)})]"
     )
     span = BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet")
     assert span is not None
@@ -236,7 +236,7 @@ def test_kararKart_omits_kaynak_rozeti_when_kaynak_missing():
         "kaynak_url": "https://example.com/1",
     }
     (html,) = _node_calistir(
-        ["esc", "escAttr", "guvenliUrl", "kararKart"], f"[kararKart({json.dumps(karar)})]"
+        ["esc", "escAttr", "guvenliUrl", "kaynakEtiketi", "kararKart"], f"[kararKart({json.dumps(karar)})]"
     )
     assert BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet") is None
 
@@ -279,7 +279,7 @@ def test_kaynakOzetMetni_lists_all_three_sources_in_fixed_order():
     """Sözlük SQLite'tan alfabetik (bddk, kvkk, spk) gelir; gösterim sırası
     yine de KVKK, BDDK, SPK olmalı."""
     (metin,) = _node_calistir(
-        ["kaynakOzetMetni"],
+        ["kaynakOzetMetni", "kaynakEtiketi"],
         '[kaynakOzetMetni({"bddk": 10, "kvkk": 8, "spk": 10})]',
     )
     assert metin == "Toplam: 8 KVKK, 10 BDDK, 10 SPK karar takip ediliyor."
@@ -290,7 +290,7 @@ def test_kaynakOzetMetni_omits_sources_with_no_kararlar():
     """ASIL DAVRANIŞ: taranmamış kaynak "0 BDDK" olarak GÖSTERİLMEZ,
     tamamen atlanır."""
     yalniz_kvkk, sifir_bddk, kvkk_spk = _node_calistir(
-        ["kaynakOzetMetni"],
+        ["kaynakOzetMetni", "kaynakEtiketi"],
         '[kaynakOzetMetni({"kvkk": 8}), '
         'kaynakOzetMetni({"kvkk": 8, "bddk": 0}), '
         'kaynakOzetMetni({"kvkk": 8, "spk": 10})]',
@@ -319,7 +319,37 @@ def test_kaynakOzetMetni_still_shows_an_unknown_future_kaynak():
     """Bu özetin var olma sebebi "yeni kaynak sessizce görünmez oldu"
     bulgusu; sabit listede olmayan bir kaynak da aynı tuzağa düşmemeli."""
     (metin,) = _node_calistir(
-        ["kaynakOzetMetni"],
+        ["kaynakOzetMetni", "kaynakEtiketi"],
         '[kaynakOzetMetni({"kvkk": 8, "resmigazete": 5})]',
     )
     assert metin == "Toplam: 8 KVKK, 5 RESMIGAZETE karar takip ediliyor."
+
+
+@node_gerekli
+def test_kararKart_renders_resmi_gazete_label_not_raw_uppercase():
+    karar = {
+        "baslik": "Karar",
+        "tarih": "2026-01-01",
+        "ozet": "özet",
+        "yapilmasi_gerekenler": [],
+        "aciliyet_var": False,
+        "aciliyet_aciklama": "",
+        "kaynak_url": "https://example.com/1",
+        "kaynak": "resmi_gazete",
+    }
+    (html,) = _node_calistir(
+        ["esc", "escAttr", "guvenliUrl", "kaynakEtiketi", "kararKart"],
+        f"[kararKart({json.dumps(karar)})]",
+    )
+    span = BeautifulSoup(html, "html.parser").select_one("span.kaynak-rozet")
+    assert span is not None
+    assert span.get_text(strip=True) == "Resmi Gazete"
+
+
+@node_gerekli
+def test_kaynakOzetMetni_includes_resmi_gazete_in_fixed_order():
+    (metin,) = _node_calistir(
+        ["kaynakOzetMetni", "kaynakEtiketi"],
+        '[kaynakOzetMetni({"resmi_gazete": 5, "bddk": 10, "kvkk": 8, "spk": 10})]',
+    )
+    assert metin == "Toplam: 8 KVKK, 10 BDDK, 10 SPK, 5 Resmi Gazete karar takip ediliyor."

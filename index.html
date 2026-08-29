@@ -92,7 +92,7 @@
     // yazılır — kaçırma (escaping) gerektiren bir yola hiç girilmez.
     function kaynakOzetMetni(kaynakSayilari) {
       const sayilar = kaynakSayilari || {};
-      const bilinenSira = ["kvkk", "bddk", "spk"];
+      const bilinenSira = ["kvkk", "bddk", "spk", "resmi_gazete"];
       // Bilinmeyen bir kaynak (ileride Resmi Gazete vb.) sessizce görünmez
       // olmasın — bu satırı doğuran bulgunun tam olarak o sınıfı.
       const digerleri = Object.keys(sayilar)
@@ -101,14 +101,23 @@
       const parcalar = bilinenSira
         .concat(digerleri)
         .filter((k) => sayilar[k] > 0)
-        .map((k) => `${sayilar[k]} ${String(k).toUpperCase()}`);
+        .map((k) => `${sayilar[k]} ${kaynakEtiketi(k)}`);
       if (parcalar.length === 0) return "";
       return `Toplam: ${parcalar.join(", ")} karar takip ediliyor.`;
     }
 
+    // Harita fonksiyon İÇİNE gömülü: _node_calistir testleri fonksiyon
+    // gövdelerini tek tek çıkarıp çalıştırıyor, üst seviye bir sabite
+    // (const) referans fonksiyon dışında tanımlıysa testte "undefined"
+    // hatası verir.
+    function kaynakEtiketi(k) {
+      const etiketler = { kvkk: "KVKK", bddk: "BDDK", spk: "SPK", resmi_gazete: "Resmi Gazete" };
+      return etiketler[k] || String(k).toUpperCase();
+    }
+
     function kararKart(karar) {
       const kaynakRozetiHtml = karar.kaynak
-        ? `<span class="kaynak-rozet">${esc(karar.kaynak.toUpperCase())}</span>`
+        ? `<span class="kaynak-rozet">${esc(kaynakEtiketi(karar.kaynak))}</span>`
         : "";
       const aciliyetHtml = karar.aciliyet_var
         ? `<span class="aciliyet" title="${escAttr(karar.aciliyet_aciklama)}">Aciliyet</span>`
