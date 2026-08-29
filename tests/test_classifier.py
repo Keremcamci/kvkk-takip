@@ -166,6 +166,41 @@ def test_classify_pending_logs_recovery_hint_on_permanent_failure(conn, caplog):
     assert "--reset-failed" in caplog.text
 
 
+def test_classify_karar_raises_clear_error_when_model_omits_required_field():
+    eksik_input = dict(SUCCESS_INPUT)
+    del eksik_input["aciliyet_aciklama"]
+    client = FakeClient([FakeResponse([FakeToolUseBlock("karar_sinifla", eksik_input)])])
+
+    try:
+        classifier.classify_karar(
+            client, "Başlık", "2026-01-01", "özet", "model", sleep_fn=lambda s: None
+        )
+        assert False, "RuntimeError bekleniyordu"
+    except RuntimeError as exc:
+        assert "aciliyet_aciklama" in str(exc)
+    assert client.messages.calls == 1
+
+
+def test_classify_pending_logs_specific_missing_field_instead_of_bare_keyerror(conn, caplog):
+    # Canlı sınıflandırma turunda (30 karar) 6 SPK kararı tam bu şekilde
+    # düşmüştü: model "yapilmasi_gerekenler" alanını atladı, classify_pending
+    # bunu ham bir KeyError olarak yuttu.
+    db.insert_karar_if_new(
+        conn, kaynak="spk", baslik="Karar", tarih="2026-01-01",
+        kaynak_url="https://example.com/eksik-alan", ozet_ham="Karar",
+    )
+    eksik_input = dict(SUCCESS_INPUT)
+    del eksik_input["yapilmasi_gerekenler"]
+    client = FakeClient([FakeResponse([FakeToolUseBlock("karar_sinifla", eksik_input)])])
+
+    with caplog.at_level(logging.WARNING):
+        sonuc = classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
+
+    assert sonuc == {"basarili": 0, "basarisiz": 1, "kalici_hata": 0}
+    assert "yapilmasi_gerekenler" in caplog.text
+    assert "zorunlu alan" in caplog.text
+
+
 def test_get_model_raises_when_env_var_missing(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
     with pytest.raises(RuntimeError, match="ANTHROPIC_MODEL"):

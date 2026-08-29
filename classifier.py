@@ -105,6 +105,21 @@ def _get_model() -> str:
     return model
 
 
+def _validate_classification_input(input_: dict) -> dict:
+    # input_schema'daki "required" modele bir ipucudur, API tarafından
+    # zorunlu kılınmaz — model bazen bir alanı atlar. Böyle bir durumda
+    # classify_pending'de ham bir KeyError'a düşüp genel bir "sınıflandırma
+    # başarısız" uyarısında boğulmak yerine, tam olarak hangi alanın eksik
+    # olduğunu söyleyen net bir hata veriyoruz (bkz. _get_model).
+    zorunlu_alanlar = KARAR_SINIFLANDIRMA_TOOL["input_schema"]["required"]
+    eksik_alanlar = [alan for alan in zorunlu_alanlar if alan not in input_]
+    if eksik_alanlar:
+        raise RuntimeError(
+            "Model yanıtında zorunlu alan(lar) eksik: " + ", ".join(eksik_alanlar)
+        )
+    return input_
+
+
 def classify_karar(client, baslik, tarih, ozet_ham, model, kaynak: str = "kvkk", sleep_fn=time.sleep) -> dict:
     prompt = build_prompt(baslik, tarih, ozet_ham, kaynak)
     son_hata: Exception | None = None
@@ -119,7 +134,7 @@ def classify_karar(client, baslik, tarih, ozet_ham, model, kaynak: str = "kvkk",
             )
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use" and block.name == "karar_sinifla":
-                    return block.input
+                    return _validate_classification_input(block.input)
             raise RuntimeError("Anthropic yanıtında tool_use bloğu bulunamadı")
         except Exception as exc:
             son_hata = exc
