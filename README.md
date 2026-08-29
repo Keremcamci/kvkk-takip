@@ -1,6 +1,7 @@
 # KVKK Mevzuat Takip Aracı
 
-Türkiye'deki KOBİ'ler için KVKK, BDDK ve SPK kararlarını otomatik tarayıp,
+Türkiye'deki KOBİ'ler için KVKK, BDDK, SPK ve Resmi Gazete kararlarını
+otomatik tarayıp,
 seçilen şirket profiline (e-ticaret / finans / sağlık / eğitim / genel) göre
 hangi kararların ilgili olduğunu özetleyen basit bir araç.
 
@@ -55,27 +56,41 @@ atlanır, diğerleri çalışır.
 
 ## Kapsam
 
-Üç kaynak destekleniyor; her birinden en güncel ~10 karar taranır (liste
+Dört kaynak destekleniyor; her birinden en güncel ~10 karar taranır (liste
 sayfasının/API yanıtının ilk sayfası):
 
-| Kaynak | Ne taranıyor                     |
-| ------ | -------------------------------- |
-| KVKK   | Kurul Kararları                  |
-| BDDK   | Kurul Kararları                  |
-| SPK    | Kurul Kararları / İlke Kararları |
+| Kaynak        | Ne taranıyor                                          |
+| ------------- | ------------------------------------------------------ |
+| KVKK          | Kurul Kararları                                        |
+| BDDK          | Kurul Kararları                                        |
+| SPK           | Kurul Kararları / İlke Kararları                       |
+| Resmi Gazete  | Yürütme ve İdare bölümü (yönetmelik/tebliğ/CB kararı/kurul kararı) |
 
 Bir kaynağa erişilemezse diğerleri çalışmaya devam eder; hata `--scrape`
 çıktısında `logging.warning` ile (yığın iziyle birlikte) raporlanır.
 
-Kapsam dışı (ileriye dönük): Resmi Gazete kaynağı, PDF tam metin çıkarımı
-(yalnızca liste sayfasındaki başlık kullanılıyor) ve sayfalama — yani her
-kaynağın ilk sayfasından öteye gidilmiyor.
+Kapsam dışı (ileriye dönük): PDF tam metin çıkarımı (yalnızca liste
+sayfasındaki başlık kullanılıyor) ve sayfalama — yani her kaynağın ilk
+sayfasından öteye gidilmiyor.
 
 Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK
 kararlarının çoğu doğal olarak `finans` etiketi alır. Bu yüzden varsayılan
 "Genel" profilinde görünmeyebilirler — sayfanın üstündeki
 "Toplam: … karar takip ediliyor." satırı her kaynaktan kaç karar
 kaydedildiğini profil seçiminden bağımsız olarak gösterir.
+
+Not: Bir kararın `sektorler` alanı boş dizi ([]) olarak sınıflandırılması,
+kararın dört sektörün (e-ticaret, finans, sağlık, eğitim) hiçbirini
+ilgilendirmediği anlamına gelir (örn. askeri bölge ilanı, kurum içi
+organizasyon kararı). Böyle bir karar yine de "Toplam: … karar takip
+ediliyor." satırındaki kaynak sayısına dahildir, ama profil değiştirilse
+bile HİÇBİR profilde görünmez. Bu kasıtlıdır — aracın kararı doğru şekilde
+"hiçbir takip edilen işletme türüyle ilgisiz" olarak değerlendirdiği
+anlamına gelir; eksik bir profil ya da hata değildir.
+
+Not: Resmi Gazete kararlarının kaynak linki, ilgili maddenin kendisine
+değil o günün resmi fihrist (içindekiler) sayfasına gider — yine de resmi
+ve doğru bir kaynak, sadece tek maddeye değil günün tümüne işaret eder.
 
 ## Lisans
 

@@ -1,0 +1,38 @@
+{
+  "draw": 1,
+  "recordsTotal": 3,
+  "recordsFiltered": 3,
+  "data": [
+    {
+      "konu": "İstihdamı Koruma Destek Programı Uygulama Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik",
+      "mevzuatAdi": "YÖNETMELİKLER",
+      "resmiGazeteSayisi": 33354,
+      "kanunKararNo": "",
+      "resmiGazeteTarihi": "2026-08-28T00:00:00",
+      "mukerrer": "HAYIR",
+      "url": "/fihrist?tarih=2026-08-28",
+      "resmiGazeteTarihiFormatted": "28.08.2026"
+    },
+    {
+      "konu": "Özel Hastaneler Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik",
+      "mevzuatAdi": "YÖNETMELİKLER",
+      "resmiGazeteSayisi": 33355,
+      "kanunKararNo": "",
+      "resmiGazeteTarihi": "2026-08-29T00:00:00",
+      "mukerrer": "HAYIR",
+      "url": "/fihrist?tarih=2026-08-29",
+      "resmiGazeteTarihiFormatted": "29.08.2026"
+    },
+    {
+      "konu": "Sınırları Gösterilen Alanın İkinci Derece Kara Askeri Yasak Bölge İlan Edilmesi Hakkında Karar (Karar Sayısı: 11680)",
+      "mevzuatAdi": " CUMHURBAŞKANI KARARLARI",
+      "resmiGazeteSayisi": 33355,
+      "kanunKararNo": "11680",
+      "resmiGazeteTarihi": "2026-08-29T00:00:00",
+      "mukerrer": "HAYIR",
+      "url": "/fihrist?tarih=2026-08-29",
+      "resmiGazeteTarihiFormatted": "29.08.2026"
+    }
+  ],
+  "searchType": 1
+}

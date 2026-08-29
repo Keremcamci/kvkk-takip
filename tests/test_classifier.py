@@ -226,3 +226,31 @@ def test_classify_pending_passes_kaynak_from_db_row_to_prompt(conn):
     classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
     assert len(client.messages.captured_prompts) == 1
     assert "BDDK (Bankacılık Düzenleme ve Denetleme Kurumu)" in client.messages.captured_prompts[0]
+
+
+def test_kurum_adlari_includes_resmi_gazete():
+    prompt = classifier.build_prompt(
+        "Başlık", "2026-01-01", "özet", kaynak="resmi_gazete"
+    )
+    assert "Resmi Gazete (T.C. Cumhurbaşkanlığı)" in prompt
+
+
+def test_sektor_etiketleme_kurali_allows_empty_array_for_irrelevant_kararlar():
+    aciklama = classifier.KARAR_SINIFLANDIRMA_TOOL["input_schema"]["properties"]["sektorler"]["description"]
+    assert classifier.SEKTOR_ETIKETLEME_KURALI in aciklama
+    assert "boş dizi" in classifier.SEKTOR_ETIKETLEME_KURALI
+    assert "[]" in classifier.SEKTOR_ETIKETLEME_KURALI
+
+
+def test_classify_pending_stores_empty_sektorler_and_excludes_from_all_profiles(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="resmi_gazete", baslik="Askeri Yasak Bölge Kararı",
+        tarih="2026-01-01", kaynak_url="https://example.com/rg1", ozet_ham="x",
+    )
+    bos_dizi_input = dict(SUCCESS_INPUT)
+    bos_dizi_input["sektorler"] = []
+    client = FakeClient([FakeResponse([FakeToolUseBlock("karar_sinifla", bos_dizi_input)])])
+    sonuc = classifier.classify_pending(conn, client=client, model="model", sleep_fn=lambda s: None)
+    assert sonuc == {"basarili": 1, "basarisiz": 0, "kalici_hata": 0}
+    for profil in ["genel", "e-ticaret", "finans", "saglik", "egitim"]:
+        assert db.get_kararlar_by_profil(conn, profil) == []

@@ -152,16 +152,21 @@ def test_run_scrape_continues_when_one_source_fails(monkeypatch, tmp_path, capsy
     )
     monkeypatch.setattr(backend.spk, "scrape_and_store", lambda conn: calls.append("spk") or 2)
     monkeypatch.setattr(
+        backend.resmi_gazete, "scrape_and_store",
+        lambda conn: calls.append("resmi_gazete") or 3,
+    )
+    monkeypatch.setattr(
         backend.classifier, "classify_pending",
         lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0},
     )
 
     backend.run_scrape()
 
-    assert calls == ["kvkk", "spk"]
+    assert calls == ["kvkk", "spk", "resmi_gazete"]
     cikti = capsys.readouterr().out
     assert "kvkk: 1 yeni karar" in cikti
     assert "spk: 2 yeni karar" in cikti
+    assert "resmi_gazete: 3 yeni karar" in cikti
     # bddk başarısız olduğu için "bddk: ... yeni karar" satırı YOK — bu
     # kaynağın hatası, print edilen özet çıktısına hiç girmemeli.
     assert "bddk:" not in cikti
@@ -177,6 +182,7 @@ def test_run_scrape_logs_warning_for_failed_source(monkeypatch, tmp_path, caplog
         lambda conn: (_ for _ in ()).throw(RuntimeError("BDDK sitesi erişilemedi")),
     )
     monkeypatch.setattr(backend.spk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(backend.resmi_gazete, "scrape_and_store", lambda conn: 0)
     monkeypatch.setattr(backend.classifier, "classify_pending", lambda conn: {"basarili": 0, "basarisiz": 0, "kalici_hata": 0})
 
     with caplog.at_level(logging.WARNING):
@@ -197,6 +203,7 @@ def test_run_scrape_logs_traceback_for_failed_source(monkeypatch, tmp_path, capl
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_run_scrape3.db")
     monkeypatch.setattr(backend.kvkk, "scrape_and_store", lambda conn: 0)
     monkeypatch.setattr(backend.bddk, "scrape_and_store", lambda conn: 0)
+    monkeypatch.setattr(backend.resmi_gazete, "scrape_and_store", lambda conn: 0)
     # Gerçekçi hata: SPK API kaydında "link" alanı eksik.
     monkeypatch.setattr(
         backend.spk, "scrape_and_store",

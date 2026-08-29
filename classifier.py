@@ -26,13 +26,17 @@ SEKTOR_ETIKETLEME_KURALI = (
     "cevaptır; kararların çoğu aslında belirli sektörleri ilgilendirir. Emin "
     'değilsen "genel" yerine en uygun spesifik sektörü seç. "genel" diğer '
     'etiketlerle birlikte kullanılmaz: ya yalnızca "genel", ya bir veya daha '
-    "fazla spesifik sektör."
+    "fazla spesifik sektör. Karar HİÇBİR işletme sektörünü (e-ticaret, "
+    'finans, sağlık, eğitim), hatta "genel" bile ilgilendirmiyorsa (örn. '
+    "askeri bölge ilanı, diplomatik vize muafiyeti, kamu kurumu iç "
+    'organizasyon kararı) "sektorler" alanını boş dizi ([]) olarak döndür.'
 )
 
 KURUM_ADLARI = {
     "kvkk": "KVKK (Kişisel Verilerin Korunması Kurumu)",
     "bddk": "BDDK (Bankacılık Düzenleme ve Denetleme Kurumu)",
     "spk": "SPK (Sermaye Piyasası Kurulu)",
+    "resmi_gazete": "Resmi Gazete (T.C. Cumhurbaşkanlığı)",
 }
 
 KARAR_SINIFLANDIRMA_TOOL = {
