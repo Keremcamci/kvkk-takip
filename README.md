@@ -79,6 +79,15 @@ kararlarının çoğu doğal olarak `finans` etiketi alır. Bu yüzden varsayıl
 "Toplam: … karar takip ediliyor." satırı her kaynaktan kaç karar
 kaydedildiğini profil seçiminden bağımsız olarak gösterir.
 
+Not: Bir kararın `sektorler` alanı boş dizi ([]) olarak sınıflandırılması,
+kararın dört sektörün (e-ticaret, finans, sağlık, eğitim) hiçbirini
+ilgilendirmediği anlamına gelir (örn. askeri bölge ilanı, kurum içi
+organizasyon kararı). Böyle bir karar yine de "Toplam: … karar takip
+ediliyor." satırındaki kaynak sayısına dahildir, ama profil değiştirilse
+bile HİÇBİR profilde görünmez. Bu kasıtlıdır — aracın kararı doğru şekilde
+"hiçbir takip edilen işletme türüyle ilgisiz" olarak değerlendirdiği
+anlamına gelir; eksik bir profil ya da hata değildir.
+
 Not: Resmi Gazete kararlarının kaynak linki, ilgili maddenin kendisine
 değil o günün resmi fihrist (içindekiler) sayfasına gider — yine de resmi
 ve doğru bir kaynak, sadece tek maddeye değil günün tümüne işaret eder.

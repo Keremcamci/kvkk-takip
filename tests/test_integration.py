@@ -18,12 +18,13 @@ from unittest.mock import patch
 import backend
 import classifier
 import db
-from scrapers import bddk, kvkk, spk
+from scrapers import bddk, kvkk, resmi_gazete, spk
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE = FIXTURES / "kvkk_kararlari_sample.html"
 BDDK_FIXTURE = FIXTURES / "bddk_kararlar_sample.html"
 SPK_FIXTURE = FIXTURES / "spk_kararlar_sample.json"
+RESMI_GAZETE_FIXTURE = FIXTURES / "resmi_gazete_kararlar_sample.json"
 
 # Gerçekçi, FARKLILAŞMIŞ etiketler — fixture'daki üç gerçek karar başlığına
 # anahtar kelimeyle eşlenir.
@@ -193,19 +194,25 @@ def test_reset_failed_unsticks_kararlar_and_pipeline_recovers(conn):
     )
 
 
-# --- Üç kaynağın BİRLİKTE kompozisyonu ----------------------------------
+# --- Dört kaynağın BİRLİKTE kompozisyonu ---------------------------------
 #
-# Yukarıdaki testlerin hepsi yalnızca KVKK fixture'ını kullanıyordu. Son
-# gözden geçirmenin bulgusu tam da bu boşluktan geçti: her görevin kendi
-# sahte verisi elle farklılaştırılmıştı, bu yüzden hiçbir test "üç kaynak
-# birlikte tarandığında profil filtresi kullanıcıya ne gösterir?" sorusunu
-# sormadı. Canlı veride BDDK ve SPK kararlarının TAMAMI "finans" etiketlendi
-# (doğru sınıflandırma — ikisi de finansal düzenleyici), dolayısıyla
-# varsayılan "genel" profilini açan kullanıcı 20 yeni kararın hiçbirini
-# görmedi.
+# Yukarıdaki testlerin hepsi yalnızca KVKK fixture'ını kullanıyordu. Önceki
+# bir gözden geçirmenin bulgusu tam da bu boşluktan geçti: her görevin
+# kendi sahte verisi elle farklılaştırılmıştı, bu yüzden hiçbir test
+# "kaynaklar birlikte tarandığında profil filtresi kullanıcıya ne
+# gösterir?" sorusunu sormadı. Canlı veride BDDK ve SPK kararlarının
+# TAMAMI "finans" etiketlendi (doğru sınıflandırma — ikisi de finansal
+# düzenleyici), dolayısıyla varsayılan "genel" profilini açan kullanıcı 20
+# yeni kararın hiçbirini görmedi.
+#
+# Bu branch dördüncü kaynağı (Resmi Gazete) ekliyor ve AYNI kompozisyon
+# boşluğunu bir kez daha üretiyor: sınıflandırıcının izin verdiği boş
+# `sektorler: []` durumu (karar hiçbir işletme sektörünü ilgilendirmiyor)
+# ilk kez burada, dört kaynak BİRLİKTE koşulduğunda test ediliyor.
 
-# Gerçek dağılımın birebir taklidi: KVKK başlıkları anahtar kelimeyle
-# farklılaşır, BDDK/SPK ise kurum adından yakalanıp "finans" etiketlenir.
+# Gerçek dağılımın birebir taklidi: KVKK ve Resmi Gazete başlıkları anahtar
+# kelimeyle farklılaşır, BDDK/SPK ise kurum adından yakalanıp "finans"
+# etiketlenir.
 UC_KAYNAK_ETIKETLERI = {
     "Sadakat Kart": ["e-ticaret"],
     "Özel Nitelikli": ["saglik"],
@@ -213,16 +220,24 @@ UC_KAYNAK_ETIKETLERI = {
     # classifier.build_prompt kurum adını prompt'a yazar (KURUM_ADLARI).
     "BDDK (Bankacılık": ["finans"],
     "SPK (Sermaye": ["finans"],
+    # tests/fixtures/resmi_gazete_kararlar_sample.json: 2 ilgili karar + 1
+    # bilerek alakasız karar (boş-dizi kuralını uçtan uca tetiklemek için).
+    "İstihdamı Koruma": ["egitim"],
+    "Özel Hastaneler": ["saglik"],
+    "Askeri Yasak Bölge": [],
 }
 
 # tests/fixtures içindeki gerçek kayıt sayıları. SPK fixture'ında 3 kayıt
 # var ama biri "Tebliğ" türünde; spk.GECERLI_TURLER onu tarama sırasında
-# eler, yani sınıflandırmaya hiç ulaşmaz.
-BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2}
+# eler, yani sınıflandırmaya hiç ulaşmaz. Resmi Gazete fixture'ındaki 3
+# kaydın hepsi taramadan geçer (tür bazlı eleme yok); biri (Askeri Yasak
+# Bölge) sınıflandırmada boş `sektorler: []` alır ama yine de bu sayıma
+# dahildir — bkz. aşağıdaki boş-dizi testleri.
+BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2, "resmi_gazete": 3}
 
 
 def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
-    """Üç fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
+    """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
     with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")):
         kvkk.scrape_and_store(conn)
     with patch(
@@ -234,6 +249,11 @@ def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
         return_value=json.loads(SPK_FIXTURE.read_text(encoding="utf-8")),
     ):
         spk.scrape_and_store(conn)
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri",
+        return_value=json.loads(RESMI_GAZETE_FIXTURE.read_text(encoding="utf-8")),
+    ):
+        resmi_gazete.scrape_and_store(conn)
     return classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
     )
@@ -244,12 +264,12 @@ def _kaynaklar(kararlar) -> set:
 
 
 def test_all_three_sources_compose_through_classification_and_profil_filter(conn):
-    """Üç kaynak birlikte tarandığında pipeline uçtan uca tutarlı olmalı."""
+    """Dört kaynak birlikte tarandığında pipeline uçtan uca tutarlı olmalı."""
     sonuc = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
 
-    # 3 (kvkk) + 3 (bddk) + 2 (spk; "Tebliğ" taramada elendi) = 8
-    assert sonuc == {"basarili": 8, "basarisiz": 0, "kalici_hata": 0}
-    assert sum(BEKLENEN_KAYNAK_SAYILARI.values()) == 8
+    # 3 (kvkk) + 3 (bddk) + 2 (spk; "Tebliğ" taramada elendi) + 3 (resmi_gazete) = 11
+    assert sonuc == {"basarili": 11, "basarisiz": 0, "kalici_hata": 0}
+    assert sum(BEKLENEN_KAYNAK_SAYILARI.values()) == 11
 
     # Kaynak başına sayım (arayüzdeki her zaman görünen özet satırının verisi).
     assert db.get_kaynak_sayilari(conn) == BEKLENEN_KAYNAK_SAYILARI
@@ -262,10 +282,34 @@ def test_all_three_sources_compose_through_classification_and_profil_filter(conn
     assert len([k for k in finans if k["kaynak"] == "bddk"]) == 3
     assert len([k for k in finans if k["kaynak"] == "spk"]) == 2
 
-    # Hiçbir karar kaybolmamalı: her karar en az bir profilde görünür olmalı.
+    # ASIL YENİ DAVRANIŞ: "sektorler: []" ile sınıflandırılan bir karar
+    # (Resmi Gazete'nin Askeri Yasak Bölge kararı) BİLEREK hiçbir profilde
+    # görünmemeli — bu bir hata değil, bu branch'ın getirdiği kuralın ta
+    # kendisi. Eskiden burada "hiçbir karar kaybolmamalı" diye TEK bir
+    # toplam sayı kontrol ediliyordu (len(gorunen) == 8); o iddia artık
+    # YANLIŞ, çünkü bu branch kasıtlı olarak bir kararı görünmez kılıyor.
+    # Doğru iddia iki parçalıdır ve ikisi de ayrı ayrı doğrulanır:
     profiller = ["genel", "e-ticaret", "finans", "saglik", "egitim"]
-    gorunen = {k["id"] for p in profiller for k in db.get_kararlar_by_profil(conn, p)}
-    assert len(gorunen) == 8
+    tum_gorunen_kararlar = [
+        k for p in profiller for k in db.get_kararlar_by_profil(conn, p)
+    ]
+    gorunen_id = {k["id"] for k in tum_gorunen_kararlar}
+    gorunen_resmi_gazete_id = {
+        k["id"] for k in tum_gorunen_kararlar if k["kaynak"] == "resmi_gazete"
+    }
+
+    # (1) Boş-dizi kararın FİLTRELENMESİ: 11 kararın 10'u en az bir
+    # profilde görünür; yalnızca askeri yasak bölge kararı hiçbir profilde
+    # yok.
+    assert len(gorunen_id) == 10
+    # resmi_gazete'nin 3 kararından yalnızca 2'si (İstihdamı Koruma, Özel
+    # Hastaneler) profillerin birleşiminde görünür; Askeri Yasak Bölge yok.
+    assert len(gorunen_resmi_gazete_id) == 2
+
+    # (2) Boş-dizi kararın SAYILMASI: profillerden düşse bile kaynak
+    # özetinden düşmez — toplam resmi_gazete sayısı hâlâ 3'tür. Bu iddia
+    # düşerse ya boş-dizi filtresi ya da kaynak sayacı bozulmuş demektir.
+    assert db.get_kaynak_sayilari(conn)["resmi_gazete"] == 3
 
 
 def test_default_genel_profil_hides_bddk_and_spk_but_kaynak_ozeti_does_not(conn):
@@ -281,11 +325,11 @@ def test_default_genel_profil_hides_bddk_and_spk_but_kaynak_ozeti_does_not(conn)
     assert _kaynaklar(genel) == {"kvkk"}, "senaryo kurgusu bozulmuş"
     assert len(genel) == 1
 
-    # ...ama kaynak özeti, "genel" profilinde bile 5 kararın daha var
+    # ...ama kaynak özeti, "genel" profilinde bile daha fazla kararın var
     # olduğunu gösterir. Bu iddia düşerse bulgu geri gelmiş demektir.
     sayilar = db.get_kaynak_sayilari(conn)
     assert sayilar["bddk"] == 3 and sayilar["spk"] == 2
-    assert sum(sayilar.values()) - len(genel) == 7
+    assert sum(sayilar.values()) - len(genel) == 10
 
 
 def test_api_exposes_all_three_sources_via_kaynak_sayilari(monkeypatch, tmp_path):

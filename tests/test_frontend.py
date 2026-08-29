@@ -275,9 +275,12 @@ def test_source_updates_kaynak_ozet_inside_yukle():
 
 
 @node_gerekli
-def test_kaynakOzetMetni_lists_all_three_sources_in_fixed_order():
+def test_kaynakOzetMetni_lists_three_sources_in_fixed_order():
     """Sözlük SQLite'tan alfabetik (bddk, kvkk, spk) gelir; gösterim sırası
-    yine de KVKK, BDDK, SPK olmalı."""
+    yine de KVKK, BDDK, SPK olmalı. (Dördüncü kaynak Resmi Gazete burada
+    bilerek verilmiyor — "bilinen 4 kaynaktan 3'ü mevcut" senaryosu;
+    dördünün birlikte sırası için bkz.
+    test_kaynakOzetMetni_includes_resmi_gazete_in_fixed_order.)"""
     (metin,) = _node_calistir(
         ["kaynakOzetMetni", "kaynakEtiketi"],
         '[kaynakOzetMetni({"bddk": 10, "kvkk": 8, "spk": 10})]',
@@ -307,7 +310,7 @@ def test_kaynakOzetMetni_returns_empty_string_when_nothing_scraped():
     """Hiç veri yokken satır tamamen boş kalmalı — "Toplam: karar takip
     ediliyor." gibi bozuk bir cümle çıkmamalı."""
     sonuclar = _node_calistir(
-        ["kaynakOzetMetni"],
+        ["kaynakOzetMetni", "kaynakEtiketi"],
         "[kaynakOzetMetni({}), kaynakOzetMetni(undefined), kaynakOzetMetni(null), "
         'kaynakOzetMetni({"kvkk": 0, "bddk": 0, "spk": 0})]',
     )
@@ -317,12 +320,17 @@ def test_kaynakOzetMetni_returns_empty_string_when_nothing_scraped():
 @node_gerekli
 def test_kaynakOzetMetni_still_shows_an_unknown_future_kaynak():
     """Bu özetin var olma sebebi "yeni kaynak sessizce görünmez oldu"
-    bulgusu; sabit listede olmayan bir kaynak da aynı tuzağa düşmemeli."""
+    bulgusu; sabit listede olmayan bir kaynak da aynı tuzağa düşmemeli.
+
+    Yer tutucu olarak "danistay" kullanılır (Danıştay — henüz eklenmemiş,
+    varsayımsal bir kaynak): gerçek "resmi_gazete" anahtarıyla
+    karıştırılabilecek "resmigazete" (alt çizgisiz) artık kullanılmıyor.
+    """
     (metin,) = _node_calistir(
         ["kaynakOzetMetni", "kaynakEtiketi"],
-        '[kaynakOzetMetni({"kvkk": 8, "resmigazete": 5})]',
+        '[kaynakOzetMetni({"kvkk": 8, "danistay": 5})]',
     )
-    assert metin == "Toplam: 8 KVKK, 5 RESMIGAZETE karar takip ediliyor."
+    assert metin == "Toplam: 8 KVKK, 5 DANISTAY karar takip ediliyor."
 
 
 @node_gerekli

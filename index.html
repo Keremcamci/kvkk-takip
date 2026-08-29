@@ -93,8 +93,8 @@
     function kaynakOzetMetni(kaynakSayilari) {
       const sayilar = kaynakSayilari || {};
       const bilinenSira = ["kvkk", "bddk", "spk", "resmi_gazete"];
-      // Bilinmeyen bir kaynak (ileride Resmi Gazete vb.) sessizce görünmez
-      // olmasın — bu satırı doğuran bulgunun tam olarak o sınıfı.
+      // Bilinmeyen bir kaynak (ileride yeni bir kaynak eklenirse) sessizce
+      // görünmez olmasın — bu satırı doğuran bulgunun tam olarak o sınıfı.
       const digerleri = Object.keys(sayilar)
         .filter((k) => bilinenSira.indexOf(k) === -1)
         .sort();
@@ -112,7 +112,13 @@
     // hatası verir.
     function kaynakEtiketi(k) {
       const etiketler = { kvkk: "KVKK", bddk: "BDDK", spk: "SPK", resmi_gazete: "Resmi Gazete" };
-      return etiketler[k] || String(k).toUpperCase();
+      // Object.prototype.hasOwnProperty ile: düz obje literali miras alınan
+      // Object.prototype üyelerine (örn. k === "constructor") düşebilir, bu
+      // da "|| String(k).toUpperCase()" yedeğinin hiç tetiklenmemesine yol
+      // açar (miras alınan değer truthy'dir).
+      return Object.prototype.hasOwnProperty.call(etiketler, k)
+        ? etiketler[k]
+        : String(k).toUpperCase();
     }
 
     function kararKart(karar) {

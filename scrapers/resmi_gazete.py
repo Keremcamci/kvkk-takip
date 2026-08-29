@@ -13,6 +13,10 @@ YURUTME_VE_IDARE = "2"
 
 
 def _filtre_govdesi(mevzuat_turu: str = YURUTME_VE_IDARE) -> dict:
+    # date.today() sunucu yerel saatine göredir (Türkiye/UTC+3 değil); gece
+    # yarısına yakın, Türkiye'nin batısındaki bir sunucuda bu bir gün geride
+    # kalabilir — 7 günlük pencere sayesinde bir sonraki koşuda kendiliğinden
+    # telafi olur.
     bugun = date.today()
     bir_hafta_once = bugun - timedelta(days=7)
     return {
@@ -20,7 +24,10 @@ def _filtre_govdesi(mevzuat_turu: str = YURUTME_VE_IDARE) -> dict:
         "columns": [],
         "order": [],
         "start": 0,
-        "length": 50,
+        # "Yürütme ve İdare" günde ~10-40 kayıt alabiliyor; 7 günde 70-280'e
+        # çıkabilir. "order": [] ile sunucu sıralaması belirsiz olsa da 300,
+        # en yeni günlerin sessizce kırpılmasını önleyen güvenli üst sınır.
+        "length": 300,
         "search": {"value": "", "regex": False},
         "parameters": {
             "genelBaslangicTarihi": bir_hafta_once.isoformat(),

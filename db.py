@@ -127,7 +127,9 @@ def get_kararlar_by_profil(conn, profil) -> list[dict]:
 
 
 def get_kaynak_sayilari(conn) -> dict[str, int]:
-    """İşlenmiş karar sayısını kaynağa (kvkk/bddk/spk) göre döner.
+    """İşlenmiş karar sayısını kaynağa göre döner (kvkk/bddk/spk/resmi_gazete
+    ve ileride eklenebilecek her yeni kaynak — sabit bir kaynak listesi yok,
+    veritabanındaki `kaynak` sütununa göre gruplanır).
 
     Profil filtresinden bağımsızdır. Varsayılan "genel" profili yalnızca
     "genel" etiketli kararları gösterdiği için, BDDK/SPK kararları
