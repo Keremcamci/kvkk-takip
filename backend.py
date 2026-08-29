@@ -7,7 +7,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import classifier
 import db
-from scrapers import bddk, kvkk, spk
+from scrapers import bddk, kvkk, resmi_gazete, spk
 
 load_dotenv()
 
@@ -44,7 +44,7 @@ def run_scrape() -> None:
     conn = db.get_connection()
     try:
         db.init_db(conn)
-        for isim, modul in [("kvkk", kvkk), ("bddk", bddk), ("spk", spk)]:
+        for isim, modul in [("kvkk", kvkk), ("bddk", bddk), ("spk", spk), ("resmi_gazete", resmi_gazete)]:
             try:
                 yeni = modul.scrape_and_store(conn)
                 print(f"{isim}: {yeni} yeni karar bulundu.")
