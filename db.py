@@ -150,6 +150,13 @@ def get_kaynak_sayilari(conn) -> dict[str, int]:
     return {row["kaynak"]: row["sayi"] for row in rows}
 
 
+def karar_var_mi(conn, kaynak_url) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM kararlar WHERE kaynak_url = ?", (kaynak_url,)
+    ).fetchone()
+    return row is not None
+
+
 def get_son_guncelleme(conn) -> str | None:
     row = conn.execute("SELECT MAX(created_at) AS son FROM kararlar").fetchone()
     return row["son"] if row and row["son"] else None
