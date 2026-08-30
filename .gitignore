@@ -3,6 +3,7 @@ venv/
 __pycache__/
 *.pyc
 kvkk.db
-.env
+.env*
+!.env.example
 .pytest_cache/
 .DS_Store
