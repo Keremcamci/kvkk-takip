@@ -82,7 +82,9 @@ class SahteClient:
 def _pipeline_calistir(conn, client) -> dict:
     """scraper + classifier'ı gerçek fixture HTML'i üzerinde uçtan uca koşar."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scrapers.kvkk.fetch_page", return_value=html):
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
     return classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
@@ -166,7 +168,9 @@ def test_reset_failed_unsticks_kararlar_and_pipeline_recovers(conn):
     """API anahtarı hatalıyken kalıcı hataya düşen kararlar, anahtar
     düzeltilip --reset-failed çalıştırıldıktan sonra sınıflandırılabilmeli."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scrapers.kvkk.fetch_page", return_value=html):
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
 
     class BozukClient:
@@ -238,11 +242,13 @@ BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2, "resmi_gazete": 3}
 
 def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
     """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
-    with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")):
+    with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
     with patch(
         "scrapers.bddk.fetch_page", return_value=BDDK_FIXTURE.read_text(encoding="utf-8")
-    ):
+    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
         bddk.scrape_and_store(conn)
     with patch(
         "scrapers.spk.fetch_veri",
@@ -319,7 +325,10 @@ def test_default_genel_profil_hides_bddk_and_spk_but_kaynak_ozeti_does_not(conn)
     özeti profilden bağımsızdır ve kullanıcıya bu kararların var olduğunu
     söyler.
     """
-    _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    with patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None), \
+         patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
+        _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
 
     genel = db.get_kararlar_by_profil(conn, "genel")
     assert _kaynaklar(genel) == {"kvkk"}, "senaryo kurgusu bozulmuş"
@@ -339,7 +348,10 @@ def test_api_exposes_all_three_sources_via_kaynak_sayilari(monkeypatch, tmp_path
 
     conn = db.get_connection()
     db.init_db(conn)
-    _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    with patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None), \
+         patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
+        _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
     conn.close()
 
     client = backend.app.test_client()
