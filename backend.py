@@ -1,9 +1,10 @@
 import argparse
 import logging
+import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, g, jsonify, request
 
 import classifier
 import db
@@ -17,9 +18,34 @@ app = Flask(__name__, static_folder=None)
 GECERLI_PROFILLER = {"genel", "e-ticaret", "finans", "saglik", "egitim"}
 
 
+@app.after_request
+def _guvenlik_basliklari_ekle(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # index.html'in tek sayfalık inline <script>/<style> kullanımı yüzünden
+    # 'unsafe-inline' CSP'yi neredeyse anlamsız kılardı (enjekte edilen
+    # herhangi bir script de çalışırdı). Bunun yerine her istekte üretilen
+    # bir nonce hem bu başlığa hem de index() rotasında sayfaya yazılır;
+    # esc()/escAttr() atlanan bir hata olsa bile enjekte edilen script bu
+    # nonce'u bilemeyeceği için tarayıcı tarafından engellenir.
+    nonce = getattr(g, "csp_nonce", None)
+    kaynak = f"'self' 'nonce-{nonce}'" if nonce else "'self'"
+    response.headers["Content-Security-Policy"] = (
+        f"default-src 'self'; script-src {kaynak}; style-src {kaynak}; "
+        "img-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
+        "base-uri 'none'; form-action 'self'"
+    )
+    return response
+
+
 @app.route("/")
 def index():
-    return send_from_directory(BASE_DIR, "index.html")
+    g.csp_nonce = secrets.token_urlsafe(16)
+    html = (BASE_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace("<script>", f'<script nonce="{g.csp_nonce}">', 1)
+    html = html.replace("<style>", f'<style nonce="{g.csp_nonce}">', 1)
+    return Response(html, mimetype="text/html")
 
 
 @app.route("/api/kararlar")
