@@ -14,22 +14,25 @@ from scrapers.common import USER_AGENT
 MAKS_PDF_BAYT = 5_000_000
 MAKS_METIN_KARAKTER = 6000
 
-_BDDK_ARA_SERTIFIKA = Path(__file__).parent / "certs" / "globalsign_rsa_ov_ssl_ca_2018.pem"
+_EK_SERTIFIKALAR_DIZINI = Path(__file__).parent / "certs"
 guven_paketi_yolu: str | None = None
 
 
 def guven_paketi() -> str:
-    # BDDK'nın sunucusu TLS handshake'inde ara sertifikayı (GlobalSign RSA
-    # OV SSL CA 2018) GÖNDERMİYOR — tarayıcılar bunu AIA ile otomatik
-    # telafi eder, requests/certifi etmez. Kök (GlobalSign Root CA - R3)
-    # zaten certifi'de güvenilir; eksik olan yalnızca bu tek ara sertifika.
-    # certifi.where() paketi pip güncellemesiyle güncel kalır — burada
-    # dondurulan tek şey ek ara sertifika, tüm kök listesi değil.
+    # Bazı TR kamu sitelerinin sunucusu TLS handshake'inde ara
+    # sertifikayı GÖNDERMİYOR (BDDK: GlobalSign RSA OV SSL CA 2018,
+    # Resmi Gazete: GeoTrust TLS RSA CA G1) — tarayıcılar bunu AIA ile
+    # otomatik telafi eder, requests/certifi etmez. Kökleri zaten
+    # certifi'de güvenilir; scrapers/certs/ altındaki HER .pem dosyası
+    # certifi'nin güncel paketine eklenir — yeni bir site aynı sorunu
+    # verirse tek yapılması gereken oraya bir dosya daha eklemek.
     global guven_paketi_yolu
     if guven_paketi_yolu is None:
-        birlesik = Path(certifi.where()).read_bytes() + b"\n" + _BDDK_ARA_SERTIFIKA.read_bytes()
+        parcalar = [Path(certifi.where()).read_bytes()]
+        for sertifika in sorted(_EK_SERTIFIKALAR_DIZINI.glob("*.pem")):
+            parcalar.append(sertifika.read_bytes())
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as f:
-            f.write(birlesik)
+            f.write(b"\n".join(parcalar))
             guven_paketi_yolu = f.name
     return guven_paketi_yolu
 

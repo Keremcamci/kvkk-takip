@@ -118,11 +118,13 @@ def test_kvkk_sayfa_metni_cek_returns_none_on_network_error(caplog):
     assert "indirilemedi" in caplog.text
 
 
-def test_guven_paketi_includes_bddk_intermediate_certificate():
+def test_guven_paketi_includes_all_committed_intermediate_certificates():
     yol = tammetin.guven_paketi()
     icerik = Path(yol).read_bytes()
-    ara_sertifika = tammetin._BDDK_ARA_SERTIFIKA.read_bytes()
-    assert ara_sertifika in icerik
+    sertifikalar = list(tammetin._EK_SERTIFIKALAR_DIZINI.glob("*.pem"))
+    assert len(sertifikalar) >= 2  # en az BDDK + Resmi Gazete
+    for sertifika in sertifikalar:
+        assert sertifika.read_bytes() in icerik
 
 
 def test_guven_paketi_includes_certifi_default_bundle():
@@ -163,3 +165,10 @@ def test_pdf_metni_cek_returns_none_when_guven_paketi_raises_oserror(caplog):
             metin = tammetin.pdf_metni_cek("https://example.com/karar.pdf")
     assert metin is None
     assert "indirilemedi" in caplog.text
+
+
+def test_guven_paketi_includes_resmi_gazete_intermediate_certificate():
+    yol = tammetin.guven_paketi()
+    icerik = Path(yol).read_bytes()
+    ara_sertifika = (tammetin._EK_SERTIFIKALAR_DIZINI / "geotrust_tls_rsa_ca_g1.pem").read_bytes()
+    assert ara_sertifika in icerik
