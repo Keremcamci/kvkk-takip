@@ -4,7 +4,7 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
-from pypdf.errors import PdfReadError
+from pypdf.errors import PyPdfError
 
 from scrapers.common import USER_AGENT
 
@@ -32,7 +32,7 @@ def pdf_metni_cek(url: str, timeout: int = 15) -> str | None:
     try:
         reader = PdfReader(io.BytesIO(response.content))
         metin = "\n".join(page.extract_text() or "" for page in reader.pages)
-    except PdfReadError as exc:
+    except PyPdfError as exc:
         logging.warning("PDF ayrıştırılamadı (%s): %s", url, exc)
         return None
 

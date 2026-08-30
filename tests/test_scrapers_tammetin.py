@@ -2,6 +2,8 @@ import logging
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from pypdf.errors import ParseError
+
 from scrapers import tammetin
 
 BDDK_PDF_FIXTURE = Path(__file__).parent / "fixtures" / "bddk_karar_sample.pdf"
@@ -61,6 +63,17 @@ def test_pdf_metni_cek_returns_none_when_no_extractable_text(caplog):
             metin = tammetin.pdf_metni_cek("https://example.com/taranmis.pdf")
     assert metin is None
     assert "çıkarılamadı" in caplog.text
+
+
+def test_pdf_metni_cek_catches_parseerror_and_returns_none(caplog):
+    fake = _pdf_response()
+    with patch("scrapers.tammetin.requests.get", return_value=fake), \
+         patch("scrapers.tammetin.PdfReader") as mock_reader:
+        mock_reader.side_effect = ParseError("Malformed PDF structure")
+        with caplog.at_level(logging.WARNING):
+            metin = tammetin.pdf_metni_cek("https://example.com/malformed.pdf")
+    assert metin is None
+    assert "ayrıştırılamadı" in caplog.text
 
 
 def test_pdf_metni_cek_truncates_to_max_length():
