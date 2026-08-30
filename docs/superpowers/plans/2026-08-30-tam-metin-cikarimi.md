@@ -378,6 +378,16 @@ Expected: "Konu Özeti" ve gerekçe paragrafı konsola basılır — `None` DEĞ
 🛑 **FAZ 1 KONTROL NOKTASI** — İki manuel doğrulamanın çıktısını
 kullanıcıya göster. Kullanıcı onaylamadan **Faz 2'ye (Task 4) geçme.**
 
+**GÜNCELLEME (bu faz sırasında keşfedildi):** Step 1'de gerçek BDDK
+sitesine karşı çalıştırıldığında `pdf_metni_cek` bir `SSLCertVerificationError`
+ile `None` döndü — BDDK'nın sunucusu TLS handshake'inde ara sertifikayı
+(GlobalSign RSA OV SSL CA 2018) göndermiyor; tarayıcılar bunu AIA ile
+otomatik telafi eder, `requests`/`certifi` etmez. Kod doğru davrandı
+(hata yakalandı, `None` + uyarı), ama bu haliyle BDDK için tam metin
+özelliği canlıda HİÇBİR ZAMAN çalışmayacaktı. Kullanıcı onayıyla eksik
+ara sertifika pakete gömülüp güven zincirine eklendi — bkz. **Task 9**
+(bu task, Faz 2 canlı demosundan (Task 5) ÖNCE tamamlanmalı).
+
 ---
 
 ## FAZ 2: BDDK Entegrasyonu
@@ -523,7 +533,8 @@ Expected: Tüm testler PASS (9/9)
 - [ ] **Step 5: Tüm paketi çalıştır (regresyon yok)**
 
 Run: `pytest -v`
-Expected: 136/136 PASS (133 + 3 yeni)
+Expected: 142/142 PASS (139 + 3 yeni — Task 2 fix round +1 ve Task 9 +5
+bu task'tan önce zaten eklendi)
 
 - [ ] **Step 6: Commit et**
 
@@ -724,7 +735,7 @@ Expected: Tüm testler PASS (9/9)
 - [ ] **Step 5: Tüm paketi çalıştır (regresyon yok)**
 
 Run: `pytest -v`
-Expected: 140/140 PASS (136 + 4 yeni)
+Expected: 146/146 PASS (142 + 4 yeni)
 
 - [ ] **Step 6: Commit et**
 
@@ -773,7 +784,7 @@ sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
       değişikliği ama alışkanlık olarak doğrula)**
 
 Run: `pytest -v`
-Expected: 140/140 PASS (bu task yeni test eklemedi)
+Expected: 146/146 PASS (bu task yeni test eklemedi)
 
 - [ ] **Step 3: Commit et**
 
@@ -821,6 +832,180 @@ sonra bu iterasyon tamamlanmış sayılır.
 
 ---
 
+### Task 9: BDDK Ara Sertifika Güven Paketi
+
+**Bağlam (Task 3'ün canlı doğrulaması sırasında keşfedildi):** Gerçek
+`https://www.bddk.org.tr/Mevzuat/DokumanGetir/1345` isteği
+`SSLCertVerificationError` ile başarısız oluyor. Kanıtlandı (`openssl
+s_client -showcerts`): BDDK sunucusu TLS handshake'inde SADECE kendi
+yaprak sertifikasını gönderiyor, ara sertifikayı (issuer: `GlobalSign
+RSA OV SSL CA 2018`) GÖNDERMİYOR. Tarayıcılar eksik ara sertifikaları
+AIA (Authority Information Access) ile otomatik indirir; Python'un
+`requests`/`certifi`'si bunu YAPMAZ — sunucunun tam zinciri göndermesini
+bekler. Kök sertifika (`GlobalSign Root CA - R3`) zaten `certifi`'de
+güvenilir (canlı doğrulandı); eksik olan yalnızca bu TEK ara sertifika.
+
+Ara sertifika, BDDK'nın kendi yaprak sertifikasındaki AIA "CA Issuers"
+alanından (`http://secure.globalsign.com/cacert/gsrsaovsslca2018.crt`
+— resmi GlobalSign deposu) indirilip doğrulandı ve DER'den PEM'e
+çevrilip `scrapers/certs/globalsign_rsa_ov_ssl_ca_2018.pem` olarak
+**zaten repoya eklendi** (bu planla aynı PR'da). `certifi`'nin
+varsayılan paketiyle birleştirilip gerçek siteye karşı test edildi:
+düzeltmeden önce `SSLError`, düzeltmeden sonra `200 OK` +
+`Content-Type: application/pdf` + 136875 bayt (fixture'daki dosyayla
+BİREBİR aynı boyut).
+
+**Files:**
+- Modify: `scrapers/tammetin.py`
+- Modify: `tests/test_scrapers_tammetin.py`
+- Sertifika (zaten mevcut): `scrapers/certs/globalsign_rsa_ov_ssl_ca_2018.pem`
+
+**Interfaces:**
+- Consumes: yok (yalnızca `requests.get` çağrılarına `verify=` parametresi
+  eklenir)
+- Produces: `scrapers.tammetin._guven_paketi() -> str` (birleşik CA
+  paketinin dosya yolunu döner, ilk çağrıda hesaplanıp önbelleğe alınır)
+
+- [ ] **Step 1: Başarısız testleri yaz (`tests/test_scrapers_tammetin.py`'nin
+      sonuna)**
+
+```python
+def test_guven_paketi_includes_bddk_intermediate_certificate():
+    yol = tammetin._guven_paketi()
+    icerik = Path(yol).read_bytes()
+    ara_sertifika = tammetin._BDDK_ARA_SERTIFIKA.read_bytes()
+    assert ara_sertifika in icerik
+
+
+def test_guven_paketi_includes_certifi_default_bundle():
+    import certifi
+
+    yol = tammetin._guven_paketi()
+    icerik = Path(yol).read_bytes()
+    certifi_icerik = Path(certifi.where()).read_bytes()
+    assert certifi_icerik in icerik
+
+
+def test_guven_paketi_is_cached_across_calls():
+    ilk = tammetin._guven_paketi()
+    ikinci = tammetin._guven_paketi()
+    assert ilk == ikinci
+
+
+def test_pdf_metni_cek_passes_guven_paketi_to_requests():
+    with patch("scrapers.tammetin.requests.get", return_value=_pdf_response()) as mock_get:
+        tammetin.pdf_metni_cek("https://example.com/karar.pdf")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin._guven_paketi()
+
+
+def test_kvkk_sayfa_metni_cek_passes_guven_paketi_to_requests():
+    fake = Mock()
+    fake.text = KVKK_DETAY_FIXTURE.read_text(encoding="utf-8")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake) as mock_get:
+        tammetin.kvkk_sayfa_metni_cek("https://www.kvkk.gov.tr/Icerik/7791/2023-2135")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin._guven_paketi()
+```
+
+- [ ] **Step 2: Testleri çalıştır, `_guven_paketi`/`_BDDK_ARA_SERTIFIKA`
+      henüz yok olduğu için başarısız olduklarını doğrula**
+
+Run: `pytest tests/test_scrapers_tammetin.py -k "guven_paketi" -v`
+Expected: FAIL — `AttributeError: module 'scrapers.tammetin' has no
+attribute '_guven_paketi'`
+
+- [ ] **Step 3: `scrapers/tammetin.py`'yi güncelle**
+
+Import satırlarını değiştir:
+
+```python
+import io
+import logging
+import tempfile
+from pathlib import Path
+
+import certifi
+import requests
+from bs4 import BeautifulSoup
+from pypdf import PdfReader
+from pypdf.errors import PyPdfError
+
+from scrapers.common import USER_AGENT
+
+MAKS_PDF_BAYT = 5_000_000
+MAKS_METIN_KARAKTER = 6000
+
+_BDDK_ARA_SERTIFIKA = Path(__file__).parent / "certs" / "globalsign_rsa_ov_ssl_ca_2018.pem"
+_guven_paketi_yolu: str | None = None
+
+
+def _guven_paketi() -> str:
+    # BDDK'nın sunucusu TLS handshake'inde ara sertifikayı (GlobalSign RSA
+    # OV SSL CA 2018) GÖNDERMİYOR — tarayıcılar bunu AIA ile otomatik
+    # telafi eder, requests/certifi etmez. Kök (GlobalSign Root CA - R3)
+    # zaten certifi'de güvenilir; eksik olan yalnızca bu tek ara sertifika.
+    # certifi.where() paketi pip güncellemesiyle güncel kalır — burada
+    # dondurulan tek şey ek ara sertifika, tüm kök listesi değil.
+    global _guven_paketi_yolu
+    if _guven_paketi_yolu is None:
+        birlesik = Path(certifi.where()).read_bytes() + b"\n" + _BDDK_ARA_SERTIFIKA.read_bytes()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as f:
+            f.write(birlesik)
+            _guven_paketi_yolu = f.name
+    return _guven_paketi_yolu
+```
+
+`pdf_metni_cek` içindeki `requests.get` çağrısını değiştir:
+
+```python
+        response = requests.get(
+            url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=_guven_paketi()
+        )
+```
+
+`kvkk_sayfa_metni_cek` içindeki `requests.get` çağrısını da AYNI şekilde
+değiştir (üçüncü parametre olarak `verify=_guven_paketi()` eklenir).
+
+(Fonksiyonların geri kalanı — content-type kontrolü, boyut sınırı, PDF
+ayrıştırma, seçici kontrolü — AYNI kalır.)
+
+- [ ] **Step 4: Testleri çalıştır, geçtiğini doğrula**
+
+Run: `pytest tests/test_scrapers_tammetin.py -v`
+Expected: Tüm testler PASS (10 + 5 yeni = 15)
+
+- [ ] **Step 5: Tüm paketi çalıştır (regresyon yok)**
+
+Run: `pytest -v`
+Expected: 139/139 PASS (134 + 5 yeni)
+
+- [ ] **Step 6: Gerçek BDDK sitesine karşı manuel doğrula**
+
+Run:
+```bash
+python3 -c "
+from scrapers.tammetin import pdf_metni_cek
+print(pdf_metni_cek('https://www.bddk.org.tr/Mevzuat/DokumanGetir/1345'))
+"
+```
+Expected: Gerçek karar metni konsola basılır (Karar Sayısı, Karar Tarihi,
+"BLG Varlık Yönetim A.Ş.'nin faaliyet izninin ... iptal edilmesine karar
+verilmiştir.") — SSL hatası YOK, `None` DEĞİL.
+
+- [ ] **Step 7: Commit et**
+
+```bash
+git add scrapers/tammetin.py tests/test_scrapers_tammetin.py scrapers/certs/globalsign_rsa_ov_ssl_ca_2018.pem
+git commit -m "fix(tammetin): trust BDDK's missing intermediate certificate"
+```
+
+(`scrapers/certs/globalsign_rsa_ov_ssl_ca_2018.pem` zaten repoda mevcutsa
+— bu planla aynı PR'da eklenmiş olabilir — `git add` sessizce no-op olur.)
+
+---
+
 ## Self-Review Notları (plan yazarı tarafından, uygulayıcı için referans)
 
 - **Kapsam kontrolü:** Spec'teki her madde bir task'a karşılık geliyor:
@@ -846,4 +1031,13 @@ sonra bu iterasyon tamamlanmış sayılır.
   edilip doğrulandı — placeholder/varsayım değil. Fixture'lar bu gerçek
   yanıtlardan türetildi.
 - **Test sayısı takibi:** 122 (başlangıç) → 124 (Task 1) → 133 (Task 2)
-  → 136 (Task 4) → 140 (Task 6) → 140 (Task 7, saf dokümantasyon).
+  → 134 (Task 2 fix round 1: pypdf `ParseError` kapsamı) → 139 (Task 9:
+  BDDK ara sertifikası — canlı doğrulama sırasında keşfedilip plana
+  sonradan eklendi) → 142 (Task 4) → 146 (Task 6) → 146 (Task 7, saf
+  dokümantasyon).
+- **Task 9 plan sonrası eklendi:** Task 3'ün canlı doğrulaması BDDK'nın
+  TLS ara sertifikasını göndermediğini ortaya çıkardı (kod hatası değil,
+  hedef sunucunun yapılandırma eksikliği). Kullanıcı onayıyla düzeltme
+  Task 9 olarak plana eklendi ve Faz 2'nin (Task 4-5) önüne alındı —
+  aksi halde BDDK için tam metin özelliği canlıda hiçbir zaman
+  çalışmayacaktı.
