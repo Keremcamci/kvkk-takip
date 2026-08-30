@@ -240,15 +240,19 @@ UC_KAYNAK_ETIKETLERI = {
 BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2, "resmi_gazete": 3}
 
 
-def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
-    """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
+def _uc_kaynak_pipeline_calistir(conn, client):
+    """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır.
+    (sonuc, kvkk_pdf_mock, bddk_pdf_mock) üçlüsünü döner — son ikisi
+    yalnızca tammetin'in gerçekten çağrıldığını (ağa çıkılmadığını)
+    doğrulamak isteyen testler için; diğer çağıranlar döndürülen değeri
+    yakalamayabilir, Python bunu zorunlu kılmaz."""
     with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")), \
-         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None) as kvkk_pdf_mock, \
          patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
     with patch(
         "scrapers.bddk.fetch_page", return_value=BDDK_FIXTURE.read_text(encoding="utf-8")
-    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
+    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None) as bddk_pdf_mock:
         bddk.scrape_and_store(conn)
     with patch(
         "scrapers.spk.fetch_veri",
@@ -260,9 +264,10 @@ def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
         return_value=json.loads(RESMI_GAZETE_FIXTURE.read_text(encoding="utf-8")),
     ):
         resmi_gazete.scrape_and_store(conn)
-    return classifier.classify_pending(
+    sonuc = classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
     )
+    return sonuc, kvkk_pdf_mock, bddk_pdf_mock
 
 
 def _kaynaklar(kararlar) -> set:
@@ -271,7 +276,12 @@ def _kaynaklar(kararlar) -> set:
 
 def test_all_three_sources_compose_through_classification_and_profil_filter(conn):
     """Dört kaynak birlikte tarandığında pipeline uçtan uca tutarlı olmalı."""
-    sonuc = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    sonuc, mock_kvkk_pdf, mock_bddk_pdf = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    # Bu assertion'lar, mock'lar yanlışlıkla silinirse (veya
+    # scrape_and_store artık tammetin'i çağırmazsa) testin sessizce
+    # geçmemesini sağlar — gerçekten çağrıldığını kanıtlar.
+    assert mock_kvkk_pdf.call_count >= 1
+    assert mock_bddk_pdf.call_count >= 1
 
     # 3 (kvkk) + 3 (bddk) + 2 (spk; "Tebliğ" taramada elendi) + 3 (resmi_gazete) = 11
     assert sonuc == {"basarili": 11, "basarisiz": 0, "kalici_hata": 0}
@@ -325,10 +335,7 @@ def test_default_genel_profil_hides_bddk_and_spk_but_kaynak_ozeti_does_not(conn)
     özeti profilden bağımsızdır ve kullanıcıya bu kararların var olduğunu
     söyler.
     """
-    with patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
-         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None), \
-         patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
-        _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
 
     genel = db.get_kararlar_by_profil(conn, "genel")
     assert _kaynaklar(genel) == {"kvkk"}, "senaryo kurgusu bozulmuş"
@@ -348,10 +355,7 @@ def test_api_exposes_all_three_sources_via_kaynak_sayilari(monkeypatch, tmp_path
 
     conn = db.get_connection()
     db.init_db(conn)
-    with patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
-         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None), \
-         patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
-        _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+    _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
     conn.close()
 
     client = backend.app.test_client()
