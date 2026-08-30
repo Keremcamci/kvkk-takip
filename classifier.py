@@ -8,7 +8,6 @@ import db
 
 MAX_BACKOFF_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 1
-MAX_KARAR_DENEME = 3
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 # Aracın tüm değeri "kararları SİZİN şirket tipinize göre filtreliyoruz"
@@ -91,7 +90,12 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 def _get_client() -> Anthropic:
-    return Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY ortam değişkeni ayarlanmamış (.env dosyanızı kontrol edin)"
+        )
+    return Anthropic(api_key=api_key)
 
 
 def _get_model() -> str:
@@ -116,6 +120,17 @@ def _validate_classification_input(input_: dict) -> dict:
     if eksik_alanlar:
         raise RuntimeError(
             "Model yanıtında zorunlu alan(lar) eksik: " + ", ".join(eksik_alanlar)
+        )
+    # JSON şeması "genel"i enum ile kısıtlar ama diğer etiketlerle birlikte
+    # kullanılamayacağını ZORUNLU KILMAZ (SEKTOR_ETIKETLEME_KURALI yalnızca
+    # prompt/description seviyesinde bir talimat). Model buna uymayıp
+    # ["e-ticaret", "genel"] gibi bir kombinasyon döndürürse profil filtresi
+    # işlevsiz kalır (her profil "genel" kararı görür) — runtime'da reddet.
+    sektorler = input_["sektorler"]
+    if "genel" in sektorler and len(sektorler) > 1:
+        raise RuntimeError(
+            '"genel" diğer sektörlerle birlikte döndürüldü: '
+            + ", ".join(sektorler)
         )
     return input_
 
@@ -173,7 +188,7 @@ def classify_pending(conn, client=None, model=None, sleep_fn=time.sleep) -> dict
                     "Karar %s kalıcı hata olarak işaretlendi (%s deneme). "
                     "Düzelttikten sonra: python backend.py --reset-failed",
                     karar["id"],
-                    MAX_KARAR_DENEME,
+                    db.MAX_KARAR_DENEME,
                 )
                 sonuc["kalici_hata"] += 1
             else:

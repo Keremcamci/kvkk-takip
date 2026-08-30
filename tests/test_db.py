@@ -1,6 +1,21 @@
 import db
 
 
+def test_get_connection_enables_wal_mode_and_busy_timeout(tmp_path):
+    """Web sunumu (backend.py) ve tarama (--scrape) aynı SQLite dosyasına
+    eşzamanlı erişebilir. Varsayılan "rollback journal" modunda bu
+    "database is locked" hatasına yol açabilir. WAL modu + busy_timeout
+    (kilit anında hemen hata vermek yerine bekleme) bu riski azaltır."""
+    connection = db.get_connection(tmp_path / "wal_test.db")
+    try:
+        mod = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mod.lower() == "wal"
+        zaman_asimi = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+        assert zaman_asimi >= 5000
+    finally:
+        connection.close()
+
+
 def test_init_db_creates_table(conn):
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='kararlar'"
@@ -102,6 +117,20 @@ def test_get_son_guncelleme_returns_none_when_empty(conn):
 def test_get_son_guncelleme_returns_timestamp_after_insert(conn):
     db.insert_karar_if_new(conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01", kaynak_url="https://example.com/7", ozet_ham="x")
     assert db.get_son_guncelleme(conn) is not None
+
+
+def test_created_at_is_marked_as_utc_with_z_suffix(conn):
+    """SQLite strftime('now') UTC döner ama saat dilimi belirtmeden. Bir
+    tarayıcıda `new Date(iso)` saat dilimi olmayan bir ISO dize-zaman
+    değerini YEREL saat olarak yorumlar; bu yüzden "Son güncelleme" saati
+    kullanıcıya yanlış gösterilir. 'Z' soneki değeri açıkça UTC olarak
+    işaretler."""
+    db.insert_karar_if_new(
+        conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01",
+        kaynak_url="https://example.com/zsuffix", ozet_ham="x",
+    )
+    son_guncelleme = db.get_son_guncelleme(conn)
+    assert son_guncelleme.endswith("Z")
 
 
 def test_reset_failed_kararlar_requeues_permanently_failed_rows(conn):
@@ -222,3 +251,19 @@ def test_get_kaynak_sayilari_ignores_pending_and_failed_kararlar(conn):
 
 def test_get_kaynak_sayilari_returns_empty_dict_when_no_kararlar(conn):
     assert db.get_kaynak_sayilari(conn) == {}
+
+
+def test_mark_karar_failed_respects_configurable_threshold(conn, monkeypatch):
+    """MAX_KARAR_DENEME tek bir yerde (db.py) tanımlanmalı; classifier.py'deki
+    ayrı bir sabit ile senkronsuzluk (drift) riski taşımamalı. Bu test eşiği
+    monkeypatch ile değiştirip mark_karar_failed'in gerçekten bu modül
+    sabitini okuduğunu (hardcoded 3 değil) kanıtlar."""
+    monkeypatch.setattr(db, "MAX_KARAR_DENEME", 2)
+    db.insert_karar_if_new(
+        conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01",
+        kaynak_url="https://example.com/esik", ozet_ham="Karar",
+    )
+    karar_id = db.get_pending_kararlar(conn)[0]["id"]
+
+    assert db.mark_karar_failed(conn, karar_id) is False
+    assert db.mark_karar_failed(conn, karar_id) is True

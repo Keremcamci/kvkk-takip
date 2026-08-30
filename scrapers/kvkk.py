@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -21,7 +22,7 @@ def _parse_tarih(baslik: str) -> str | None:
     return f"{yil}-{int(ay):02d}-{int(gun):02d}"
 
 
-def parse_karar_listesi(html: str) -> list[dict]:
+def parse_karar_listesi(html: str, base_url: str = KVKK_LIST_URL) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     kararlar = []
     for item in soup.select("div.members__item"):
@@ -33,7 +34,7 @@ def parse_karar_listesi(html: str) -> list[dict]:
         kararlar.append({
             "baslik": baslik,
             "tarih": _parse_tarih(baslik),
-            "kaynak_url": link["href"].strip(),
+            "kaynak_url": urljoin(base_url, link["href"].strip()),
             "ozet_ham": baslik,
         })
     return kararlar
@@ -47,7 +48,7 @@ def fetch_page(url: str = KVKK_LIST_URL, timeout: int = 15) -> str:
 
 def scrape_and_store(conn, url: str = KVKK_LIST_URL) -> int:
     html = fetch_page(url)
-    kararlar = parse_karar_listesi(html)
+    kararlar = parse_karar_listesi(html, base_url=url)
     yeni_sayisi = 0
     for karar in kararlar:
         if db.insert_karar_if_new(conn, kaynak="kvkk", **karar):

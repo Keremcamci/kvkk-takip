@@ -83,6 +83,22 @@ def test_api_kararlar_kaynak_sayilari_is_empty_when_db_empty(monkeypatch, tmp_pa
     assert veri["kaynak_sayilari"] == {}
 
 
+def test_api_kararlar_rejects_unknown_profil_with_400(monkeypatch, tmp_path):
+    """profil query param'ı doğrulanmıyordu: bilinmeyen bir değer (örn.
+    ?profil=xyz) sessizce yalnızca "genel" etiketli kararları döndürüyordu.
+    Şimdi izin verilen listede olmayan bir değer 400 ile reddedilmeli."""
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_backend_gecersiz_profil.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
+    client = backend.app.test_client()
+    response = client.get("/api/kararlar?profil=xyz")
+
+    assert response.status_code == 400
+    assert "profil" in response.get_json()["error"]
+
+
 def test_api_kararlar_defaults_to_genel_profile_when_empty(monkeypatch, tmp_path):
     db_path = tmp_path / "test_backend2.db"
     monkeypatch.setattr(db, "DB_PATH", db_path)

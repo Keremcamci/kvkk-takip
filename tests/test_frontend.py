@@ -354,6 +354,37 @@ def test_kararKart_renders_resmi_gazete_label_not_raw_uppercase():
     assert span.get_text(strip=True) == "Resmi Gazete"
 
 
+# --- 4. Ağ/parse hatası görünürlüğü -------------------------------------
+#
+# Bulgu: yukle() içinde try/catch yoktu. fetch() başarısız olur (ağ hatası,
+# sunucu 500, bozuk JSON) ya da backend artık geçersiz profil için 400
+# döndürürse (bkz. backend.py GECERLI_PROFILLER), önceki davranış:
+# yakalanmamış bir promise reddi — sayfa sessizce eski/boş halinde kalır,
+# kullanıcıya hiçbir şey gösterilmez.
+
+
+def test_source_yukle_has_try_catch_around_fetch_and_parse():
+    yukle_kaynagi = _js_fonksiyonu(_kaynak(), "yukle")
+    assert "try {" in yukle_kaynagi
+    assert "} catch" in yukle_kaynagi
+    # Hem ağ hatası (fetch reddi) hem de sunucunun ürettiği hata durumu
+    # (ör. 400/500) try bloğunun İÇİNDE olmalı, aksi halde yakalanmaz.
+    try_govdesi = yukle_kaynagi.split("try {", 1)[1].split("} catch", 1)[0]
+    assert "await fetch(" in try_govdesi
+    assert "res.ok" in try_govdesi
+
+
+def test_source_yukle_catch_block_shows_safe_error_via_textContent():
+    """Hata mesajı innerHTML DEĞİL textContent ile yazılmalı — diğer kaçırma
+    (escaping) bulgularıyla aynı disiplin: statik bir dizeyse bile
+    textContent kullanmak bu satırı gelecekteki değişikliklere karşı da
+    güvenli tutar."""
+    yukle_kaynagi = _js_fonksiyonu(_kaynak(), "yukle")
+    catch_govdesi = yukle_kaynagi.split("} catch", 1)[1]
+    assert "liste.textContent" in catch_govdesi
+    assert "liste.innerHTML" not in catch_govdesi
+
+
 @node_gerekli
 def test_kaynakOzetMetni_includes_resmi_gazete_in_fixed_order():
     (metin,) = _node_calistir(

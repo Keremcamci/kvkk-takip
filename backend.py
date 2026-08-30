@@ -14,6 +14,8 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
 
+GECERLI_PROFILLER = {"genel", "e-ticaret", "finans", "saglik", "egitim"}
+
 
 @app.route("/")
 def index():
@@ -23,6 +25,11 @@ def index():
 @app.route("/api/kararlar")
 def api_kararlar():
     profil = request.args.get("profil", "genel")
+    if profil not in GECERLI_PROFILLER:
+        return jsonify({
+            "error": f"Geçersiz profil: {profil!r}. İzin verilenler: "
+            f"{', '.join(sorted(GECERLI_PROFILLER))}",
+        }), 400
     conn = db.get_connection()
     try:
         kararlar = db.get_kararlar_by_profil(conn, profil)

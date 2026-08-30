@@ -148,20 +148,33 @@
 
     async function yukle() {
       const profil = profilSelect.value;
-      const res = await fetch(`/api/kararlar?profil=${encodeURIComponent(profil)}`);
-      const veri = await res.json();
-      const sonGuncelleme = formatTarih(veri.son_guncelleme);
-      sonGuncellemeEl.textContent = sonGuncelleme
-        ? `Son güncelleme: ${sonGuncelleme}`
-        : "Henüz veri yok";
-      // Boş liste dalından ÖNCE: bu satırın asıl işe yaradığı durum tam da
-      // seçili profilin hiç karar döndürmediği durum.
-      kaynakOzetEl.textContent = kaynakOzetMetni(veri.kaynak_sayilari);
-      if (!veri.kararlar || veri.kararlar.length === 0) {
-        liste.innerHTML = '<p class="bos">Bu profil için henüz karar yok.</p>';
-        return;
+      try {
+        const res = await fetch(`/api/kararlar?profil=${encodeURIComponent(profil)}`);
+        if (!res.ok) {
+          throw new Error(`Sunucu hatası (${res.status})`);
+        }
+        const veri = await res.json();
+        const sonGuncelleme = formatTarih(veri.son_guncelleme);
+        sonGuncellemeEl.textContent = sonGuncelleme
+          ? `Son güncelleme: ${sonGuncelleme}`
+          : "Henüz veri yok";
+        // Boş liste dalından ÖNCE: bu satırın asıl işe yaradığı durum tam da
+        // seçili profilin hiç karar döndürmediği durum.
+        kaynakOzetEl.textContent = kaynakOzetMetni(veri.kaynak_sayilari);
+        if (!veri.kararlar || veri.kararlar.length === 0) {
+          liste.innerHTML = '<p class="bos">Bu profil için henüz karar yok.</p>';
+          return;
+        }
+        liste.innerHTML = veri.kararlar.map(kararKart).join("");
+      } catch (err) {
+        // Ağ hatası, sunucu hatası (ör. geçersiz profil) veya bozuk JSON:
+        // önceki davranış yakalanmamış bir promise reddiydi — sayfa
+        // sessizce eski/boş halinde kalırdı. Statik bir hata mesajı olsa
+        // bile textContent kullanılır (diğer escaping bulgularıyla aynı
+        // disiplin).
+        console.error("Kararlar yüklenemedi:", err);
+        liste.textContent = "Kararlar yüklenemedi. Lütfen sayfayı yenileyin.";
       }
-      liste.innerHTML = veri.kararlar.map(kararKart).join("");
     }
 
     profilSelect.addEventListener("change", yukle);

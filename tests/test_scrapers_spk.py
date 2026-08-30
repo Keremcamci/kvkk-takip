@@ -62,3 +62,33 @@ def test_scrape_and_store_respects_limit(conn):
     with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
         yeni_sayisi = spk.scrape_and_store(conn, limit=1)
     assert yeni_sayisi == 1
+
+
+def test_parse_kararlar_skips_record_missing_title_instead_of_raising(caplog):
+    """SPK API'sinden dönen bir kayıtta "title" eksikse eski davranış ham bir
+    KeyError fırlatıp o TARAMA turundaki tüm SPK kararlarını (eksik olan tek
+    kayıt yüzünden) çöpe atıyordu. Eksik alanlı kayıt atlanmalı, diğerleri
+    işlenmeye devam etmeli."""
+    veri = _fixture_veri()
+    del veri[0]["title"]  # geçerli türde (İlke Kararı) ama başlığı eksik kayıt
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        kararlar = spk.parse_kararlar(veri)
+
+    assert len(kararlar) == 1  # sadece "Kurul Kararı" olan ikinci kayıt kaldı
+    assert kararlar[0]["tarih"] == "2026-08-13"
+    assert "title" in caplog.text
+
+
+def test_parse_kararlar_skips_record_missing_link_instead_of_raising(caplog):
+    veri = _fixture_veri()
+    del veri[1]["link"]  # geçerli türde (Kurul Kararı) ama linki eksik kayıt
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        kararlar = spk.parse_kararlar(veri)
+
+    assert len(kararlar) == 1  # sadece "İlke Kararı" olan ilk kayıt kaldı
+    assert kararlar[0]["tarih"] == "2026-08-27"
+    assert "link" in caplog.text

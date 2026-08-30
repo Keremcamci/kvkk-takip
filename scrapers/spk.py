@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import urljoin
 
 import requests
@@ -18,11 +19,18 @@ def parse_kararlar(veri: list[dict], base_url: str = SPK_BASE_URL) -> list[dict]
         tarih_iso = item.get("kurulKararTarihi")
         if not tarih_iso:
             continue
-        baslik = item["title"]
+        baslik = item.get("title")
+        link = item.get("link")
+        if not baslik or not link:
+            logging.warning(
+                "SPK kaydı eksik alan(lar) içeriyor, atlanıyor: id=%s title=%s link=%s",
+                item.get("id"), baslik, link,
+            )
+            continue
         kararlar.append({
             "baslik": baslik,
             "tarih": tarih_iso[:10],
-            "kaynak_url": urljoin(base_url, item["link"]),
+            "kaynak_url": urljoin(base_url, link),
             "ozet_ham": baslik,
         })
     kararlar.sort(key=lambda k: k["tarih"], reverse=True)
