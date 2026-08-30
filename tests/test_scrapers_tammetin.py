@@ -116,3 +116,42 @@ def test_kvkk_sayfa_metni_cek_returns_none_on_network_error(caplog):
             metin = tammetin.kvkk_sayfa_metni_cek("https://www.kvkk.gov.tr/Icerik/1/1")
     assert metin is None
     assert "indirilemedi" in caplog.text
+
+
+def test_guven_paketi_includes_bddk_intermediate_certificate():
+    yol = tammetin._guven_paketi()
+    icerik = Path(yol).read_bytes()
+    ara_sertifika = tammetin._BDDK_ARA_SERTIFIKA.read_bytes()
+    assert ara_sertifika in icerik
+
+
+def test_guven_paketi_includes_certifi_default_bundle():
+    import certifi
+
+    yol = tammetin._guven_paketi()
+    icerik = Path(yol).read_bytes()
+    certifi_icerik = Path(certifi.where()).read_bytes()
+    assert certifi_icerik in icerik
+
+
+def test_guven_paketi_is_cached_across_calls():
+    ilk = tammetin._guven_paketi()
+    ikinci = tammetin._guven_paketi()
+    assert ilk == ikinci
+
+
+def test_pdf_metni_cek_passes_guven_paketi_to_requests():
+    with patch("scrapers.tammetin.requests.get", return_value=_pdf_response()) as mock_get:
+        tammetin.pdf_metni_cek("https://example.com/karar.pdf")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin._guven_paketi()
+
+
+def test_kvkk_sayfa_metni_cek_passes_guven_paketi_to_requests():
+    fake = Mock()
+    fake.text = KVKK_DETAY_FIXTURE.read_text(encoding="utf-8")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake) as mock_get:
+        tammetin.kvkk_sayfa_metni_cek("https://www.kvkk.gov.tr/Icerik/7791/2023-2135")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin._guven_paketi()
