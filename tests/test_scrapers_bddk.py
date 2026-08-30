@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 
 import db
 from scrapers import bddk
+from scrapers import tammetin
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bddk_kararlar_sample.html"
 BASE_URL = "https://www.bddk.org.tr/Mevzuat/Liste/55"
@@ -99,3 +100,13 @@ def test_scrape_and_store_does_not_refetch_full_text_for_known_kararlar(conn):
         ikinci_cagri_sayisi = mock_pdf.call_count
     assert ilk_cagri_sayisi == 3  # fixture'da 3 karar var
     assert ikinci_cagri_sayisi == ilk_cagri_sayisi  # ikinci koşuda yeni çağrı yok
+
+
+def test_fetch_page_passes_guven_paketi_to_requests():
+    fake_response = Mock()
+    fake_response.text = "<html>ok</html>"
+    fake_response.raise_for_status = Mock()
+    with patch("scrapers.bddk.requests.get", return_value=fake_response) as mock_get:
+        bddk.fetch_page("https://example.com/kararlar")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin.guven_paketi()

@@ -40,7 +40,9 @@ def parse_kararlar(html: str, base_url: str = BDDK_LIST_URL) -> list[dict]:
 
 
 def fetch_page(url: str = BDDK_LIST_URL, timeout: int = 15) -> str:
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+    response = requests.get(
+        url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=tammetin.guven_paketi()
+    )
     response.raise_for_status()
     return response.text
 

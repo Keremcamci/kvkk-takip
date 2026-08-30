@@ -15,29 +15,29 @@ MAKS_PDF_BAYT = 5_000_000
 MAKS_METIN_KARAKTER = 6000
 
 _BDDK_ARA_SERTIFIKA = Path(__file__).parent / "certs" / "globalsign_rsa_ov_ssl_ca_2018.pem"
-_guven_paketi_yolu: str | None = None
+guven_paketi_yolu: str | None = None
 
 
-def _guven_paketi() -> str:
+def guven_paketi() -> str:
     # BDDK'nın sunucusu TLS handshake'inde ara sertifikayı (GlobalSign RSA
     # OV SSL CA 2018) GÖNDERMİYOR — tarayıcılar bunu AIA ile otomatik
     # telafi eder, requests/certifi etmez. Kök (GlobalSign Root CA - R3)
     # zaten certifi'de güvenilir; eksik olan yalnızca bu tek ara sertifika.
     # certifi.where() paketi pip güncellemesiyle güncel kalır — burada
     # dondurulan tek şey ek ara sertifika, tüm kök listesi değil.
-    global _guven_paketi_yolu
-    if _guven_paketi_yolu is None:
+    global guven_paketi_yolu
+    if guven_paketi_yolu is None:
         birlesik = Path(certifi.where()).read_bytes() + b"\n" + _BDDK_ARA_SERTIFIKA.read_bytes()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as f:
             f.write(birlesik)
-            _guven_paketi_yolu = f.name
-    return _guven_paketi_yolu
+            guven_paketi_yolu = f.name
+    return guven_paketi_yolu
 
 
 def pdf_metni_cek(url: str, timeout: int = 15) -> str | None:
     try:
         response = requests.get(
-            url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=_guven_paketi()
+            url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=guven_paketi()
         )
         response.raise_for_status()
     except (requests.RequestException, ConnectionError, OSError) as exc:
@@ -70,7 +70,7 @@ def pdf_metni_cek(url: str, timeout: int = 15) -> str | None:
 def kvkk_sayfa_metni_cek(url: str, timeout: int = 15) -> str | None:
     try:
         response = requests.get(
-            url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=_guven_paketi()
+            url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=guven_paketi()
         )
         response.raise_for_status()
     except (requests.RequestException, ConnectionError, OSError) as exc:
