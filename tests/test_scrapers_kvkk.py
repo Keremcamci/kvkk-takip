@@ -51,6 +51,23 @@ def test_scrape_and_store_inserts_new_kararlar(conn):
     assert len(db.get_pending_kararlar(conn)) == 3
 
 
+def test_parse_karar_listesi_resolves_relative_href_to_absolute_url():
+    """BDDK ve SPK scraper'ları urljoin() kullanıyor, KVKK kullanmıyordu —
+    KVKK sitesi relative bir href döndürürse veritabanına bozuk (site
+    kökünden başlamayan, tarayıcıda kırık) bir URL yazılıyordu."""
+    html = """
+    <div class="members__item">
+      <div class="members__item-meta">
+        <h2>Relative Bağlantılı Bir Karar Hakkında Kişisel Verileri Koruma
+        Kurulunun 05.03.2026 Tarihli ve 2026/9999 Sayılı Kararı</h2>
+        <a class="read-more" href="/Icerik/9999/relative-karar">Devamını Gör</a>
+      </div>
+    </div>
+    """
+    (karar,) = kvkk.parse_karar_listesi(html)
+    assert karar["kaynak_url"] == "https://www.kvkk.gov.tr/Icerik/9999/relative-karar"
+
+
 def test_scrape_and_store_is_idempotent(conn):
     html = FIXTURE.read_text(encoding="utf-8")
     with patch("scrapers.kvkk.fetch_page", return_value=html):

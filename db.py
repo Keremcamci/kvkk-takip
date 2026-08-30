@@ -4,6 +4,8 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "kvkk.db"
 
+MAX_KARAR_DENEME = 3
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kararlar (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,7 +21,7 @@ CREATE TABLE IF NOT EXISTS kararlar (
     aciliyet_aciklama TEXT,
     islendi_mi INTEGER NOT NULL DEFAULT 0,
     deneme_sayisi INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 """
 
@@ -29,6 +31,12 @@ def get_connection(db_path=None) -> sqlite3.Connection:
         db_path = DB_PATH
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    # WAL: web sunumu (backend.py) ve tarama (--scrape) aynı dosyaya
+    # eşzamanlı erişebilir; varsayılan rollback journal modu bu durumda
+    # "database is locked" hatası verebilir. busy_timeout, kilit anında
+    # hemen hata vermek yerine kısa bir süre bekler.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -78,7 +86,7 @@ def mark_karar_failed(conn, karar_id) -> bool:
         "SELECT deneme_sayisi FROM kararlar WHERE id = ?", (karar_id,)
     ).fetchone()
     yeni_deneme = row["deneme_sayisi"] + 1
-    kalici_mi = yeni_deneme >= 3
+    kalici_mi = yeni_deneme >= MAX_KARAR_DENEME
     yeni_durum = -1 if kalici_mi else 0
     conn.execute(
         "UPDATE kararlar SET deneme_sayisi = ?, islendi_mi = ? WHERE id = ?",

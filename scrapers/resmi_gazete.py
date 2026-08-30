@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from datetime import date, timedelta
 from urllib.parse import urljoin
 
@@ -44,9 +45,17 @@ def parse_kararlar(veri: dict, base_url: str = RESMI_GAZETE_BASE_URL) -> list[di
         tarih_iso = item.get("resmiGazeteTarihi")
         if not tarih_iso:
             continue
-        baslik = item["konu"]
+        baslik = item.get("konu")
+        goreli_url = item.get("url")
+        if not baslik or not goreli_url:
+            logging.warning(
+                "Resmi Gazete kaydı eksik alan(lar) içeriyor, atlanıyor: "
+                "konu=%s url=%s",
+                baslik, goreli_url,
+            )
+            continue
         konu_hash = hashlib.sha1(baslik.encode("utf-8")).hexdigest()[:10]
-        kaynak_url = f"{urljoin(base_url, item['url'])}#{konu_hash}"
+        kaynak_url = f"{urljoin(base_url, goreli_url)}#{konu_hash}"
         kararlar.append({
             "baslik": baslik,
             "tarih": tarih_iso[:10],

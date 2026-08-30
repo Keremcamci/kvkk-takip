@@ -81,3 +81,32 @@ def test_parse_kararlar_gives_distinct_urls_to_same_day_items():
     ayni_gun = [k for k in kararlar if k["tarih"] == "2026-08-29"]
     assert len(ayni_gun) == 2
     assert ayni_gun[0]["kaynak_url"] != ayni_gun[1]["kaynak_url"]
+
+
+def test_parse_kararlar_skips_record_missing_konu_instead_of_raising(caplog):
+    """spk.py'deki aynı bulgu sınıfı: "konu" veya "url" eksikse eski
+    davranış ham bir KeyError fırlatıp o turdaki TÜM Resmi Gazete
+    kararlarını tek bir bozuk kayıt yüzünden kaybediyordu."""
+    import logging
+
+    veri = _fixture_veri()
+    del veri["data"][0]["konu"]
+
+    with caplog.at_level(logging.WARNING):
+        kararlar = resmi_gazete.parse_kararlar(veri)
+
+    assert len(kararlar) == 2
+    assert "konu" in caplog.text
+
+
+def test_parse_kararlar_skips_record_missing_url_instead_of_raising(caplog):
+    import logging
+
+    veri = _fixture_veri()
+    del veri["data"][1]["url"]
+
+    with caplog.at_level(logging.WARNING):
+        kararlar = resmi_gazete.parse_kararlar(veri)
+
+    assert len(kararlar) == 2
+    assert "url" in caplog.text

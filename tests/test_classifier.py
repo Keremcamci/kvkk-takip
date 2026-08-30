@@ -44,7 +44,7 @@ class FakeClient:
 
 
 SUCCESS_INPUT = {
-    "sektorler": ["e-ticaret", "genel"],
+    "sektorler": ["e-ticaret"],
     "ozet": "Kısa özet.",
     "yapilmasi_gerekenler": ["Madde 1"],
     "aciliyet_var": False,
@@ -201,6 +201,44 @@ def test_classify_pending_logs_specific_missing_field_instead_of_bare_keyerror(c
     assert "zorunlu alan" in caplog.text
 
 
+def test_classifier_permanent_failure_log_uses_shared_db_threshold(conn, caplog, monkeypatch):
+    """classifier.py artık kendi ayrı MAX_KARAR_DENEME sabitini tutmuyor;
+    db.MAX_KARAR_DENEME'yi paylaşıyor. db tarafındaki eşik değiştirildiğinde
+    hem gerçek kalıcı hata davranışı hem de log mesajı bununla tutarlı
+    kalmalı (drift riski olmamalı)."""
+    monkeypatch.setattr(db, "MAX_KARAR_DENEME", 2)
+    db.insert_karar_if_new(
+        conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01",
+        kaynak_url="https://example.com/paylasilan-esik", ozet_ham="Karar",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(2):
+            classifier.classify_pending(
+                conn, client=FakeClient([ValueError("hata")]), model="model", sleep_fn=lambda s: None
+            )
+
+    assert "2 deneme" in caplog.text
+    row = conn.execute("SELECT islendi_mi FROM kararlar").fetchone()
+    assert row["islendi_mi"] == -1
+
+
+def test_get_client_raises_clear_error_when_api_key_missing(monkeypatch):
+    """Eskiden os.environ["ANTHROPIC_API_KEY"] ham bir KeyError fırlatıyordu
+    — kullanıcıya ne yapması gerektiğini söylemeyen, ayıklaması zor bir hata.
+    _get_model zaten bu deseni kullanıyor (bkz. aşağıdaki testler); _get_client
+    de aynı netlikte olmalı."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        classifier._get_client()
+
+
+def test_get_client_returns_client_when_api_key_present(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-123")
+    client = classifier._get_client()
+    assert client.api_key == "sk-test-123"
+
+
 def test_get_model_raises_when_env_var_missing(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
     with pytest.raises(RuntimeError, match="ANTHROPIC_MODEL"):
@@ -275,6 +313,37 @@ def test_sektor_etiketleme_kurali_allows_empty_array_for_irrelevant_kararlar():
     assert classifier.SEKTOR_ETIKETLEME_KURALI in aciklama
     assert "boş dizi" in classifier.SEKTOR_ETIKETLEME_KURALI
     assert "[]" in classifier.SEKTOR_ETIKETLEME_KURALI
+
+
+def test_classify_karar_raises_clear_error_when_genel_combined_with_specific_sector():
+    """SEKTOR_ETIKETLEME_KURALI prompt'ta ve tool şemasının description'ında
+    "genel" diğer etiketlerle birlikte kullanılamaz diyor, ama şema bunu
+    JSON Schema seviyesinde ZORUNLU KILMIYOR (enum kısıtı var, birliktelik
+    kısıtı yok). Model yine de ["e-ticaret", "genel"] döndürebilir — bu
+    durumda profil filtresi işlevsiz kalır (her profil "genel" karar
+    görür). Runtime'da da reddedilmeli."""
+    ihlal_eden_input = dict(SUCCESS_INPUT)
+    ihlal_eden_input["sektorler"] = ["e-ticaret", "genel"]
+    client = FakeClient([FakeResponse([FakeToolUseBlock("karar_sinifla", ihlal_eden_input)])])
+
+    try:
+        classifier.classify_karar(
+            client, "Başlık", "2026-01-01", "özet", "model", sleep_fn=lambda s: None
+        )
+        assert False, "RuntimeError bekleniyordu"
+    except RuntimeError as exc:
+        assert "genel" in str(exc)
+    assert client.messages.calls == 1
+
+
+def test_classify_karar_allows_genel_alone():
+    yalniz_genel_input = dict(SUCCESS_INPUT)
+    yalniz_genel_input["sektorler"] = ["genel"]
+    client = FakeClient([FakeResponse([FakeToolUseBlock("karar_sinifla", yalniz_genel_input)])])
+    sonuc = classifier.classify_karar(
+        client, "Başlık", "2026-01-01", "özet", "model", sleep_fn=lambda s: None
+    )
+    assert sonuc["sektorler"] == ["genel"]
 
 
 def test_classify_pending_stores_empty_sektorler_and_excludes_from_all_profiles(conn):
