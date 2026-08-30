@@ -547,6 +547,16 @@ git commit -m "feat(bddk): enrich ozet_ham with real PDF text when available"
 
 ### Task 5: Faz 2 Canlı Demo
 
+**GÜNCELLEME (bu faz sırasında keşfedildi):** Step 1'i çalıştırırken
+`scrapers/bddk.py`'nin KENDİ `fetch_page()`'i (liste sayfasını çeken)
+de aynı SSL hatasıyla patladı — Task 9'daki düzeltme yalnızca
+`scrapers/tammetin.py`'nin iki fonksiyonuna uygulanmıştı, `bddk.py`'nin
+liste sayfası isteğine değil. Canlı doğrulandı: aynı eksik ara sertifika
+sorunu `www.bddk.org.tr/Mevzuat/Liste/55` için de geçerli, aynı
+`_guven_paketi()` düzeltmesi burayı da çözüyor (certifi-only → `SSLError`,
+`_guven_paketi()` ile → `200`, 637234 bayt). Bu **Task 10** olarak plana
+eklendi; bu task'ın adımları Task 10 TAMAMLANDIKTAN SONRA çalıştırılmalı.
+
 **Files:** Yok
 
 **Interfaces:** Yok
@@ -735,7 +745,7 @@ Expected: Tüm testler PASS (9/9)
 - [ ] **Step 5: Tüm paketi çalıştır (regresyon yok)**
 
 Run: `pytest -v`
-Expected: 146/146 PASS (142 + 4 yeni)
+Expected: 148/148 PASS (144 + 4 yeni)
 
 - [ ] **Step 6: Commit et**
 
@@ -784,7 +794,7 @@ sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
       değişikliği ama alışkanlık olarak doğrula)**
 
 Run: `pytest -v`
-Expected: 146/146 PASS (bu task yeni test eklemedi)
+Expected: 148/148 PASS (bu task yeni test eklemedi)
 
 - [ ] **Step 3: Commit et**
 
@@ -1006,6 +1016,143 @@ git commit -m "fix(tammetin): trust BDDK's missing intermediate certificate"
 
 ---
 
+### Task 10: BDDK Liste Sayfası İçin de Güven Paketi
+
+**Bağlam (Task 5'in canlı demosu sırasında keşfedildi):** Task 9,
+BDDK'nın eksik ara sertifikasını yalnızca `scrapers/tammetin.py`'nin iki
+fonksiyonu için düzeltti (`pdf_metni_cek`, `kvkk_sayfa_metni_cek`).
+Ama `scrapers/bddk.py`'nin KENDİ `fetch_page()`'i — liste sayfasını
+(`https://www.bddk.org.tr/Mevzuat/Liste/55`) çeken fonksiyon — de AYNI
+`www.bddk.org.tr` host'una bağlanıyor ve dokunulmadığı için hâlâ
+`SSLCertVerificationError` veriyor. Canlı doğrulandı: `_guven_paketi()`
+ile aynı düzeltme liste sayfası için de çalışıyor (`200`, 637234 bayt).
+
+`_guven_paketi()` artık `tammetin.py` dışından (bddk.py'den) da
+çağrılacağı için, alt çizgili "private" adı yanıltıcı olur — bu task
+onu **`guven_paketi()`** (alt çizgisiz, public) olarak yeniden
+adlandırır. Bu, `tammetin.py` içindeki 2 kullanım yerini VE
+`tests/test_scrapers_tammetin.py`'deki 9 referansı da (fonksiyon/test
+adları DEĞİL, yalnızca `tammetin._guven_paketi` çağrıları) etkiler —
+mantık değişmiyor, sadece isim.
+
+**Files:**
+- Modify: `scrapers/tammetin.py`
+- Modify: `tests/test_scrapers_tammetin.py`
+- Modify: `scrapers/bddk.py`
+- Modify: `tests/test_scrapers_bddk.py`
+
+**Interfaces:**
+- Consumes: yok
+- Produces: `scrapers.tammetin.guven_paketi() -> str` (Task 9'daki
+  `_guven_paketi()`'nin yeniden adlandırılmış hâli — davranış AYNI)
+
+- [ ] **Step 1: `tests/test_scrapers_tammetin.py`'de TÜM
+      `tammetin._guven_paketi` referanslarını `tammetin.guven_paketi`
+      ile değiştir (fonksiyon/test İSİMLERİ aynı kalır, yalnızca
+      çağrılar değişir)**
+
+Şu satırlardaki `_guven_paketi` → `guven_paketi` (alt çizgisiz):
+- `test_guven_paketi_includes_bddk_intermediate_certificate` içindeki
+  `tammetin._guven_paketi()` çağrısı
+- `test_guven_paketi_includes_certifi_default_bundle` içindeki
+  `tammetin._guven_paketi()` çağrısı
+- `test_guven_paketi_is_cached_across_calls` içindeki İKİ
+  `tammetin._guven_paketi()` çağrısı
+- `test_pdf_metni_cek_passes_guven_paketi_to_requests` içindeki
+  `tammetin._guven_paketi()` çağrısı
+- `test_kvkk_sayfa_metni_cek_passes_guven_paketi_to_requests` içindeki
+  `tammetin._guven_paketi()` çağrısı
+- `test_pdf_metni_cek_returns_none_when_guven_paketi_raises_oserror`
+  içindeki `patch("scrapers.tammetin._guven_paketi", ...)` →
+  `patch("scrapers.tammetin.guven_paketi", ...)`
+
+(Test fonksiyonlarının İSİMLERİ — `test_guven_paketi_...` gibi —
+DEĞİŞMEZ; yalnızca içeride `tammetin.` üzerinden yapılan çağrılar/patch
+hedefleri değişir.)
+
+`tests/test_scrapers_bddk.py`'nin SONUNA yeni bir test ekle:
+
+```python
+def test_fetch_page_passes_guven_paketi_to_requests():
+    fake_response = Mock()
+    fake_response.text = "<html>ok</html>"
+    fake_response.raise_for_status = Mock()
+    with patch("scrapers.bddk.requests.get", return_value=fake_response) as mock_get:
+        bddk.fetch_page("https://example.com/kararlar")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin.guven_paketi()
+```
+
+(Bu test için `tests/test_scrapers_bddk.py`'nin en üstüne
+`from scrapers import tammetin` import satırı eklenmesi gerekir.)
+
+- [ ] **Step 2: Testleri çalıştır, yeni testin `AttributeError`/`KeyError`
+      ile başarısız olduğunu doğrula**
+
+Run: `pytest tests/test_scrapers_bddk.py -k fetch_page_passes -v`
+Expected: FAIL — `fetch_page`'in `requests.get` çağrısında henüz
+`verify` anahtarı yok (`KeyError: 'verify'`)
+
+- [ ] **Step 3: `scrapers/tammetin.py`'de fonksiyonu yeniden adlandır**
+
+`_guven_paketi_yolu` değişkeni ve `_guven_paketi()` fonksiyonunun TÜM
+tanım ve kullanımlarında `_guven_paketi` → `guven_paketi` (alt çizgisiz)
+yap: değişken adı (`_guven_paketi_yolu` → `guven_paketi_yolu`),
+fonksiyon tanımı (`def _guven_paketi()` → `def guven_paketi()`),
+fonksiyon içindeki `global` bildirimi, ve HER İKİ `requests.get`
+çağrısındaki `verify=_guven_paketi()` → `verify=guven_paketi()`.
+(Fonksiyonun gövdesi — certifi + ara sertifika birleştirme mantığı,
+tempfile oluşturma — DEĞİŞMEZ, sadece isimler.)
+
+- [ ] **Step 4: `scrapers/bddk.py`'yi güncelle**
+
+`fetch_page` fonksiyonundaki `requests.get` çağrısını değiştir:
+
+```python
+def fetch_page(url: str = BDDK_LIST_URL, timeout: int = 15) -> str:
+    response = requests.get(
+        url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=tammetin.guven_paketi()
+    )
+    response.raise_for_status()
+    return response.text
+```
+
+(`tammetin` importu Task 4'ten beri zaten mevcut.)
+
+- [ ] **Step 5: Testleri çalıştır, geçtiğini doğrula**
+
+Run: `pytest tests/test_scrapers_tammetin.py tests/test_scrapers_bddk.py -v`
+Expected: Tüm testler PASS (Task 9'daki 6 test + Task 4'teki 10 test +
+bu task'ın 1 yeni testi = isim değişikliği hiçbir testi bozmaz, +1 net
+yeni test)
+
+- [ ] **Step 6: Tüm paketi çalıştır (regresyon yok)**
+
+Run: `pytest -v`
+Expected: 144/144 PASS (143 + 1 yeni)
+
+- [ ] **Step 7: Gerçek BDDK liste sayfasına karşı manuel doğrula**
+
+Run:
+```bash
+python3 -c "
+from scrapers.bddk import fetch_page
+html = fetch_page()
+print(len(html), 'bayt indirildi')
+"
+```
+Expected: SSL hatası YOK, binlerce baytlık gerçek HTML konsola boyut
+olarak basılır (liste sayfası).
+
+- [ ] **Step 8: Commit et**
+
+```bash
+git add scrapers/tammetin.py tests/test_scrapers_tammetin.py scrapers/bddk.py tests/test_scrapers_bddk.py
+git commit -m "fix(bddk): trust BDDK's certificate chain for the listing page fetch too"
+```
+
+---
+
 ## Self-Review Notları (plan yazarı tarafından, uygulayıcı için referans)
 
 - **Kapsam kontrolü:** Spec'teki her madde bir task'a karşılık geliyor:
@@ -1031,13 +1178,15 @@ git commit -m "fix(tammetin): trust BDDK's missing intermediate certificate"
   edilip doğrulandı — placeholder/varsayım değil. Fixture'lar bu gerçek
   yanıtlardan türetildi.
 - **Test sayısı takibi:** 122 (başlangıç) → 124 (Task 1) → 133 (Task 2)
-  → 134 (Task 2 fix round 1: pypdf `ParseError` kapsamı) → 139 (Task 9:
-  BDDK ara sertifikası — canlı doğrulama sırasında keşfedilip plana
-  sonradan eklendi) → 142 (Task 4) → 146 (Task 6) → 146 (Task 7, saf
-  dokümantasyon).
-- **Task 9 plan sonrası eklendi:** Task 3'ün canlı doğrulaması BDDK'nın
-  TLS ara sertifikasını göndermediğini ortaya çıkardı (kod hatası değil,
-  hedef sunucunun yapılandırma eksikliği). Kullanıcı onayıyla düzeltme
-  Task 9 olarak plana eklendi ve Faz 2'nin (Task 4-5) önüne alındı —
-  aksi halde BDDK için tam metin özelliği canlıda hiçbir zaman
-  çalışmayacaktı.
+  → 134 (Task 2 fix round 1: pypdf `ParseError` kapsamı) → 139 (Task 9)
+  → 140 (Task 9 fix round 1: `OSError` kapsamı) → 143 (Task 4) → 144
+  (Task 10) → 148 (Task 6) → 148 (Task 7, saf dokümantasyon).
+- **Task 9 ve Task 10, plan sonrası eklendi:** Task 3'ün canlı
+  doğrulaması BDDK'nın TLS ara sertifikasını göndermediğini ortaya
+  çıkardı (kod hatası değil, hedef sunucunun yapılandırma eksikliği).
+  Kullanıcı onayıyla düzeltme Task 9 olarak plana eklendi. Task 5'in
+  canlı demosu sırasında AYNI sorunun `bddk.py`'nin kendi liste sayfası
+  isteğini de etkilediği görüldü (Task 9 sadece `tammetin.py`'yi
+  kapsıyordu) — bu da Task 10 olarak eklendi. İkisi de Faz 2'nin canlı
+  demosundan (Task 5) önce tamamlanmalı, aksi halde BDDK için tam metin
+  özelliği canlıda hiçbir zaman çalışmayacaktı.
