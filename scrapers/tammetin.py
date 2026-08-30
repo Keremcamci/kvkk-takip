@@ -40,7 +40,7 @@ def pdf_metni_cek(url: str, timeout: int = 15) -> str | None:
             url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=_guven_paketi()
         )
         response.raise_for_status()
-    except (requests.RequestException, ConnectionError) as exc:
+    except (requests.RequestException, ConnectionError, OSError) as exc:
         logging.warning("Tam metin indirilemedi (%s): %s", url, exc)
         return None
 
@@ -73,7 +73,7 @@ def kvkk_sayfa_metni_cek(url: str, timeout: int = 15) -> str | None:
             url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=_guven_paketi()
         )
         response.raise_for_status()
-    except (requests.RequestException, ConnectionError) as exc:
+    except (requests.RequestException, ConnectionError, OSError) as exc:
         logging.warning("KVKK detay sayfası indirilemedi (%s): %s", url, exc)
         return None
 

@@ -155,3 +155,11 @@ def test_kvkk_sayfa_metni_cek_passes_guven_paketi_to_requests():
         tammetin.kvkk_sayfa_metni_cek("https://www.kvkk.gov.tr/Icerik/7791/2023-2135")
     _, kwargs = mock_get.call_args
     assert kwargs["verify"] == tammetin._guven_paketi()
+
+
+def test_pdf_metni_cek_returns_none_when_guven_paketi_raises_oserror(caplog):
+    with patch("scrapers.tammetin._guven_paketi", side_effect=OSError("örnek hata")):
+        with caplog.at_level(logging.WARNING):
+            metin = tammetin.pdf_metni_cek("https://example.com/karar.pdf")
+    assert metin is None
+    assert "indirilemedi" in caplog.text
