@@ -904,6 +904,165 @@ bu planla aynı PR'da eklenmiş olabilir — `git add` sessizce no-op olur.)
 
 ---
 
+### Task 12: `tests/test_integration.py`'yi Gerçek Ağdan İzole Et
+
+**Bağlam (Task 11'in kendi kendine gözden geçirmesi sırasında
+keşfedildi, bağımsız olarak Task 11'in reviewer'ı tarafından da
+doğrulandı):** Task 4 ve Task 6, `scrapers/bddk.py` ve
+`scrapers/kvkk.py`'nin KENDİ test dosyalarını (`test_scrapers_bddk.py`,
+`test_scrapers_kvkk.py`) `tammetin.pdf_metni_cek`/`kvkk_sayfa_metni_cek`'i
+mock'lamak için güncellemişti — ama `tests/test_integration.py`'yi
+GÜNCELLEMEYİ ATLAMIŞTIK. Bu dosya da `kvkk.scrape_and_store`/
+`bddk.scrape_and_store`'u gerçek şekilde çağırıyor (yalnızca
+`fetch_page`'i mock'luyor), yani Task 9/10/11'den ÖNCE bu çağrılar
+BDDK/Resmi Gazete'nin SSL hatasına çarpıp hızlıca `None` dönüyordu —
+tesadüfen "hızlı ve deterministik" görünüyordu. Sertifika düzeltmeleri
+sayesinde artık bu bağlantılar gerçekten kuruluyor, yani bu testler artık
+GERÇEK ağ çağrıları yapıyor (yavaş, `resmigazete.gov.tr` durumunda
+zaman zaman zaman aşımına uğrayabilir). Bu, projenin "testler hermetik
+olmalı, gerçek ağa çıkmamalı" ilkesini ihlal ediyor (bkz.
+`test_scrapers_bddk.py`/`test_scrapers_kvkk.py`'de Task 4/6'nın zaten
+uyguladığı desen).
+
+**Etkilenen 3 yer** (hepsi `tests/test_integration.py` içinde):
+1. `_pipeline_calistir` (yalnızca `kvkk.scrape_and_store` çağırıyor)
+2. `test_reset_failed_unsticks_kararlar_and_pipeline_recovers` (kendi
+   içinde ayrı, `_pipeline_calistir` kullanmıyor, yine sadece
+   `kvkk.scrape_and_store` çağırıyor)
+3. `_uc_kaynak_pipeline_calistir` (HEM `kvkk.scrape_and_store` HEM
+   `bddk.scrape_and_store` çağırıyor)
+
+**Files:**
+- Modify: `tests/test_integration.py`
+
+**Interfaces:**
+- Consumes: `scrapers.kvkk.tammetin.pdf_metni_cek`/`kvkk_sayfa_metni_cek`,
+  `scrapers.bddk.tammetin.pdf_metni_cek` (Task 2/9/10/11'den, davranış
+  değişmiyor — yalnızca test dosyasında mock'lanıyor)
+- Produces: yok (saf test izolasyonu, hiçbir üretim kodu değişmiyor)
+
+**Not — klasik RED/GREEN uygulanmıyor:** Bu bulgunun "RED" durumu
+(testlerin gerçek ağa çıkması) CI'da yavaşlık/kırılganlık olarak zaten
+yaşandı (Task 11 implementer'ının ilk tam paket koşusunda bir test
+başarısız oldu) — bunu BİLEREK tekrar üretmek (gerçek ağa çıkmaya
+devam ederek) düzeltmenin amacına aykırı olur. Bunun yerine: mock'lar
+eklenir VE her etkilenen testin en az birine, mock'un GERÇEKTEN
+çağrıldığını (yani koddan gerçek ağa çıkma girişiminin varsayılan
+davranış olduğunu, mock olmasa gerçek isteğin yapılacağını) kanıtlayan
+bir `call_count` assertion'ı eklenir — bu, testin gelecekte birisi
+mock'u yanlışlıkla silerse fark edilmeden geçmemesini sağlar.
+
+- [ ] **Step 1: `_pipeline_calistir`'i güncelle**
+
+```python
+def _pipeline_calistir(conn, client) -> dict:
+    """scraper + classifier'ı gerçek fixture HTML'i üzerinde uçtan uca koşar."""
+    html = FIXTURE.read_text(encoding="utf-8")
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
+        kvkk.scrape_and_store(conn)
+    return classifier.classify_pending(
+        conn, client=client, model="test-model", sleep_fn=lambda s: None
+    )
+```
+
+- [ ] **Step 2: `test_reset_failed_unsticks_kararlar_and_pipeline_recovers`'ı
+      güncelle**
+
+Fonksiyonun başındaki şu bloğu:
+
+```python
+    html = FIXTURE.read_text(encoding="utf-8")
+    with patch("scrapers.kvkk.fetch_page", return_value=html):
+        kvkk.scrape_and_store(conn)
+```
+
+şununla DEĞİŞTİR:
+
+```python
+    html = FIXTURE.read_text(encoding="utf-8")
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
+        kvkk.scrape_and_store(conn)
+```
+
+(Fonksiyonun geri kalanı — `BozukClient`, `reset_failed_kararlar`
+çağrıları, assertion'lar — AYNI kalır.)
+
+- [ ] **Step 3: `_uc_kaynak_pipeline_calistir`'i güncelle**
+
+```python
+def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
+    """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
+    with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
+        kvkk.scrape_and_store(conn)
+    with patch(
+        "scrapers.bddk.fetch_page", return_value=BDDK_FIXTURE.read_text(encoding="utf-8")
+    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
+        bddk.scrape_and_store(conn)
+    with patch(
+        "scrapers.spk.fetch_veri",
+        return_value=json.loads(SPK_FIXTURE.read_text(encoding="utf-8")),
+    ):
+        spk.scrape_and_store(conn)
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri",
+        return_value=json.loads(RESMI_GAZETE_FIXTURE.read_text(encoding="utf-8")),
+    ):
+        resmi_gazete.scrape_and_store(conn)
+    return classifier.classify_pending(
+        conn, client=client, model="test-model", sleep_fn=lambda s: None
+    )
+```
+
+- [ ] **Step 4: `test_all_three_sources_compose_through_classification_and_profil_filter`'a
+      mock'ların gerçekten çağrıldığını kanıtlayan bir assertion ekle**
+
+Bu test zaten `_uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))`
+çağırıyor. Fonksiyonun EN BAŞINA (ilk satırdan önce) şunu ekle:
+
+```python
+def test_all_three_sources_compose_through_classification_and_profil_filter(conn):
+    """Dört kaynak birlikte tarandığında pipeline uçtan uca tutarlı olmalı."""
+    with patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None) as mock_kvkk_pdf, \
+         patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None) as mock_bddk_pdf:
+        sonuc = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
+        # Bu assertion'lar, mock'lar yanlışlıkla silinirse (veya
+        # scrape_and_store artık tammetin'i çağırmazsa) testin sessizce
+        # geçmemesini sağlar — gerçekten çağrıldığını kanıtlar.
+        assert mock_kvkk_pdf.call_count >= 1
+        assert mock_bddk_pdf.call_count >= 1
+```
+
+(Fonksiyonun geri kalanındaki mevcut assertion'lar — `sonuc == {...}`,
+`db.get_kaynak_sayilari` kontrolleri vb. — `with` bloğunun İÇİNE
+girintilenerek AYNEN taşınır, değişmez.)
+
+- [ ] **Step 5: Testleri çalıştır, geçtiğini doğrula**
+
+Run: `pytest tests/test_integration.py -v`
+Expected: Tüm testler PASS, hiçbiri gerçek ağa çıkmadığı için hızlı
+(< 1 saniye toplamda)
+
+- [ ] **Step 6: Tüm paketi çalıştır (regresyon yok)**
+
+Run: `pytest -v`
+Expected: 149/149 PASS (bu task yeni test eklemedi, sadece 3 yeri
+mock'ladı + 1 test'e call_count assertion'ı ekledi)
+
+- [ ] **Step 7: Commit et**
+
+```bash
+git add tests/test_integration.py
+git commit -m "test(integration): mock tammetin calls to keep the suite hermetic"
+```
+
+---
+
 ### Task 7: `README.md` Güncellemesi
 
 **Files:**
