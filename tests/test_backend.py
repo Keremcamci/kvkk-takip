@@ -1,3 +1,4 @@
+import re
 import sys
 
 import db
@@ -10,6 +11,57 @@ def test_index_serves_html_with_disclaimer():
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "hukuki tavsiye değildir" in body
+
+
+def test_baseline_security_headers_present_on_index():
+    """Hiçbir güvenlik başlığı ayarlanmıyordu (CSP, X-Frame-Options,
+    X-Content-Type-Options, HSTS)."""
+    response = backend.app.test_client().get("/")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "max-age=" in response.headers["Strict-Transport-Security"]
+
+
+def test_baseline_security_headers_present_on_api_endpoint():
+    """Başlıklar yalnızca / rotasına değil, tüm yanıtlara uygulanmalı."""
+    response = backend.app.test_client().get("/api/kararlar")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "max-age=" in response.headers["Strict-Transport-Security"]
+
+
+def test_csp_uses_nonce_matching_injected_script_and_style_tags():
+    """index.html inline <script> ve <style> kullanıyor; 'unsafe-inline'
+    CSP'yi neredeyse anlamsız kılar (enjekte edilen HERHANGİ bir script de
+    çalışır). Bunun yerine her istekte üretilen bir nonce, hem CSP başlığına
+    hem de sayfadaki <script>/<style> etiketlerine yazılmalı — yalnızca
+    sunucunun kendi ürettiği script/style çalışır, başka bir enjeksiyon
+    (esc()/escAttr() atlanan bir hata olsa bile) nonce'u bilemeyeceği için
+    tarayıcı tarafından engellenir."""
+    response = backend.app.test_client().get("/")
+    csp = response.headers["Content-Security-Policy"]
+    m = re.search(r"nonce-([A-Za-z0-9_-]+)", csp)
+    assert m is not None, f"CSP'de nonce bulunamadı: {csp}"
+    nonce = m.group(1)
+
+    body = response.get_data(as_text=True)
+    assert f'<script nonce="{nonce}">' in body
+    assert f'<style nonce="{nonce}">' in body
+    assert "script-src 'self' 'nonce-" in csp
+    assert "style-src 'self' 'nonce-" in csp
+    assert "'unsafe-inline'" not in csp
+
+
+def test_csp_nonce_differs_between_requests():
+    """Sabit/hardcoded bir nonce, gerçek bir nonce olmaz — enjekte edilen
+    script de o sabit değeri kolayca taşıyabilir."""
+    client = backend.app.test_client()
+
+    def _nonce():
+        csp = client.get("/").headers["Content-Security-Policy"]
+        return re.search(r"nonce-([A-Za-z0-9_-]+)", csp).group(1)
+
+    assert _nonce() != _nonce()
 
 
 def test_api_kararlar_returns_son_guncelleme_and_filtered_list(monkeypatch, tmp_path):
