@@ -756,6 +756,154 @@ git commit -m "feat(kvkk): enrich ozet_ham with real page/PDF text when availabl
 
 ---
 
+### Task 11: Resmi Gazete İçin de Güven Paketi (ikinci ara sertifika)
+
+**Bağlam (Task 6'dan önce, önleyici canlı kontrol sırasında keşfedildi):**
+KVKK'nın "dış link" alt durumu (bkz. Task 6) `resmigazete.gov.tr`
+üzerindeki PDF'lere gidiyor. Bu host da BDDK ile AYNI sınıf bir sorun
+veriyor: sunucu ara sertifikasını (issuer: `GeoTrust TLS RSA CA G1`,
+kök: `DigiCert Global Root G2` — zaten certifi'de güvenilir) TLS
+handshake'inde göndermiyor. AIA "CA Issuers" alanından
+(`http://cacerts.geotrust.com/GeoTrustTLSRSACAG1.crt` — resmi GeoTrust
+deposu) indirilip doğrulandı ve `scrapers/certs/geotrust_tls_rsa_ca_g1.pem`
+olarak **zaten repoya eklendi** (bu planla aynı PR'da).
+
+Aynı sınıf sorunun art arda İKİNCİ kez görülmesi (BDDK: Task 9, şimdi
+Resmi Gazete), `guven_paketi()`'nin TEK bir sabit dosya adını
+(`_BDDK_ARA_SERTIFIKA`) hardcode etmesini kırılgan kılıyor — bu task
+onu genelleştirir: `scrapers/certs/` dizinindeki HER `.pem` dosyası
+otomatik olarak birleşik pakete eklenir. Gelecekte üçüncü bir TR kamu
+sitesi aynı sorunu verirse, tek yapılması gereken oraya bir sertifika
+dosyası daha eklemek olur — kod değişikliği gerekmez.
+
+**Not (canlı doğrulama sınırı):** `resmigazete.gov.tr`'ye TLS handshake
+başarıyla tamamlanıyor (`openssl`/`curl` ile doğrulandı: "SSL
+certificate verify ok"), ama bu ortamdan yapılan istekler bazen okuma
+aşamasında zaman aşımına uğruyor (sertifika sorunuyla İLGİSİZ, muhtemelen
+bu sanal ortamın ağ koşulları — `curl` ile de aynı davranış, siteye
+hiçbir istek türü yanıt vermiyor). Bu task'ın canlı doğrulama adımı bu
+yüzden "SSL hatası YOK" koşulunu arar, "indirme kesin başarılı olmalı"
+koşulunu ARAMAZ — zaten kod, ağ zaman aşımını `None` + uyarı ile doğru
+şekilde ele alıyor (Task 2'den beri).
+
+**Files:**
+- Modify: `scrapers/tammetin.py`
+- Modify: `tests/test_scrapers_tammetin.py`
+- Sertifika (zaten mevcut): `scrapers/certs/geotrust_tls_rsa_ca_g1.pem`
+
+**Interfaces:**
+- Consumes: yok
+- Produces: `scrapers.tammetin.guven_paketi() -> str` (davranışı
+  genelleşir — artık `scrapers/certs/`'teki TÜM `.pem` dosyalarını
+  içerir, tek bir sabit dosya değil)
+
+- [ ] **Step 1: Başarısız testleri yaz**
+
+`tests/test_scrapers_tammetin.py`'deki
+`test_guven_paketi_includes_bddk_intermediate_certificate` testini ŞUNUNLA
+DEĞİŞTİR (artık tek bir sabit dosya adı yerine dizindeki TÜM
+sertifikaları kontrol ediyor):
+
+```python
+def test_guven_paketi_includes_all_committed_intermediate_certificates():
+    yol = tammetin.guven_paketi()
+    icerik = Path(yol).read_bytes()
+    sertifikalar = list(tammetin._EK_SERTIFIKALAR_DIZINI.glob("*.pem"))
+    assert len(sertifikalar) >= 2  # en az BDDK + Resmi Gazete
+    for sertifika in sertifikalar:
+        assert sertifika.read_bytes() in icerik
+```
+
+Dosyanın sonuna yeni bir test ekle:
+
+```python
+def test_guven_paketi_includes_resmi_gazete_intermediate_certificate():
+    yol = tammetin.guven_paketi()
+    icerik = Path(yol).read_bytes()
+    ara_sertifika = (tammetin._EK_SERTIFIKALAR_DIZINI / "geotrust_tls_rsa_ca_g1.pem").read_bytes()
+    assert ara_sertifika in icerik
+```
+
+- [ ] **Step 2: Testleri çalıştır, `_EK_SERTIFIKALAR_DIZINI` henüz
+      olmadığı için başarısız olduklarını doğrula**
+
+Run: `pytest tests/test_scrapers_tammetin.py -k guven_paketi -v`
+Expected: FAIL — `AttributeError: module 'scrapers.tammetin' has no
+attribute '_EK_SERTIFIKALAR_DIZINI'`
+
+- [ ] **Step 3: `scrapers/tammetin.py`'yi güncelle**
+
+`_BDDK_ARA_SERTIFIKA` sabitini ve `guven_paketi()` fonksiyonunu
+şunlarla DEĞİŞTİR:
+
+```python
+_EK_SERTIFIKALAR_DIZINI = Path(__file__).parent / "certs"
+guven_paketi_yolu: str | None = None
+
+
+def guven_paketi() -> str:
+    # Bazı TR kamu sitelerinin sunucusu TLS handshake'inde ara
+    # sertifikayı GÖNDERMİYOR (BDDK: GlobalSign RSA OV SSL CA 2018,
+    # Resmi Gazete: GeoTrust TLS RSA CA G1) — tarayıcılar bunu AIA ile
+    # otomatik telafi eder, requests/certifi etmez. Kökleri zaten
+    # certifi'de güvenilir; scrapers/certs/ altındaki HER .pem dosyası
+    # certifi'nin güncel paketine eklenir — yeni bir site aynı sorunu
+    # verirse tek yapılması gereken oraya bir dosya daha eklemek.
+    global guven_paketi_yolu
+    if guven_paketi_yolu is None:
+        parcalar = [Path(certifi.where()).read_bytes()]
+        for sertifika in sorted(_EK_SERTIFIKALAR_DIZINI.glob("*.pem")):
+            parcalar.append(sertifika.read_bytes())
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as f:
+            f.write(b"\n".join(parcalar))
+            guven_paketi_yolu = f.name
+    return guven_paketi_yolu
+```
+
+(Diğer her şey — `pdf_metni_cek`, `kvkk_sayfa_metni_cek`, importlar —
+AYNI kalır; `verify=guven_paketi()` çağrıları zaten mevcut, hiçbiri
+değişmiyor çünkü fonksiyonun ADI ve İMZASI değişmiyor, sadece gövdesi.)
+
+- [ ] **Step 4: Testleri çalıştır, geçtiğini doğrula**
+
+Run: `pytest tests/test_scrapers_tammetin.py -v`
+Expected: Tüm testler PASS (15 + 1 net yeni = 16; bir test değiştirildi,
+bir test eklendi)
+
+- [ ] **Step 5: Tüm paketi çalıştır (regresyon yok)**
+
+Run: `pytest -v`
+Expected: 149/149 PASS (148 + 1 yeni)
+
+- [ ] **Step 6: Gerçek Resmi Gazete PDF'ine karşı manuel doğrula**
+
+Run:
+```bash
+python3 -c "
+from scrapers.tammetin import pdf_metni_cek
+sonuc = pdf_metni_cek('https://www.resmigazete.gov.tr/eskiler/2026/08/20260813-3.pdf')
+print(sonuc)
+"
+```
+Expected: Ya gerçek metin konsola basılır, ya da (bu ortamın ağ koşulları
+yüzünden) zaman aşımı olur ve `logging.warning` çıktısı görülür —
+**HER İKİ durumda da `SSLCertVerificationError`/`SSLError` OLMAMALI.**
+Hata varsa ve türü SSL değilse (ör. `ReadTimeout`, `ConnectionError`),
+bu sertifika düzeltmesinin doğru çalıştığının kanıtıdır; SSL hatası
+görülürse düzeltme eksik demektir, DURUP araştır.
+
+- [ ] **Step 7: Commit et**
+
+```bash
+git add scrapers/tammetin.py tests/test_scrapers_tammetin.py scrapers/certs/geotrust_tls_rsa_ca_g1.pem
+git commit -m "fix(tammetin): trust resmigazete.gov.tr's missing intermediate too, generalize cert loading"
+```
+
+(`scrapers/certs/geotrust_tls_rsa_ca_g1.pem` zaten repoda mevcutsa —
+bu planla aynı PR'da eklenmiş olabilir — `git add` sessizce no-op olur.)
+
+---
+
 ### Task 7: `README.md` Güncellemesi
 
 **Files:**
@@ -794,7 +942,7 @@ sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
       değişikliği ama alışkanlık olarak doğrula)**
 
 Run: `pytest -v`
-Expected: 148/148 PASS (bu task yeni test eklemedi)
+Expected: 149/149 PASS (bu task yeni test eklemedi)
 
 - [ ] **Step 3: Commit et**
 
