@@ -69,9 +69,18 @@ sayfasının/API yanıtının ilk sayfası):
 Bir kaynağa erişilemezse diğerleri çalışmaya devam eder; hata `--scrape`
 çıktısında `logging.warning` ile (yığın iziyle birlikte) raporlanır.
 
-Kapsam dışı (ileriye dönük): PDF tam metin çıkarımı (yalnızca liste
-sayfasındaki başlık kullanılıyor) ve sayfalama — yani her kaynağın ilk
-sayfasından öteye gidilmiyor.
+BDDK ve KVKK kararları artık (mümkün olduğunda) gerçek karar metninden
+sınıflandırılıyor — BDDK için doğrudan PDF, KVKK için (kaynağa göre)
+kendi detay sayfasındaki özet veya PDF. Tam metin indirilemezse (ağ
+hatası, taranmış/görsel PDF, vb.) sessizce başlığa düşülür.
+
+SPK ve Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
+SPK'nın "Dosya" linki JavaScript ile render edilen bir sayfa (düz bir
+HTTP isteğiyle içeriğe ulaşılamıyor); Resmi Gazete'nin linki tek bir
+maddeye değil günün fihrist sayfasına gidiyor (bkz. aşağıdaki not).
+
+Kapsam dışı (ileriye dönük): SPK/Resmi Gazete için tam metin çıkarımı ve
+sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
 
 Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK
 kararlarının çoğu doğal olarak `finans` etiketi alır. Bu yüzden varsayılan
