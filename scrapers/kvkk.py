@@ -1,10 +1,11 @@
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 import db
+from scrapers import tammetin
 from scrapers.common import USER_AGENT
 
 KVKK_LIST_URL = "https://www.kvkk.gov.tr/Icerik/5419/kurul-kararlari"
@@ -51,6 +52,14 @@ def scrape_and_store(conn, url: str = KVKK_LIST_URL) -> int:
     kararlar = parse_karar_listesi(html, base_url=url)
     yeni_sayisi = 0
     for karar in kararlar:
+        if db.karar_var_mi(conn, karar["kaynak_url"]):
+            continue
+        if urlparse(karar["kaynak_url"]).netloc == "www.kvkk.gov.tr":
+            tam_metin = tammetin.kvkk_sayfa_metni_cek(karar["kaynak_url"])
+        else:
+            tam_metin = tammetin.pdf_metni_cek(karar["kaynak_url"])
+        if tam_metin:
+            karar["ozet_ham"] = tam_metin
         if db.insert_karar_if_new(conn, kaynak="kvkk", **karar):
             yeni_sayisi += 1
     return yeni_sayisi
