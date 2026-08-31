@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import db
 from scrapers import resmi_gazete
+from scrapers import tammetin
 
 FIXTURE = Path(__file__).parent / "fixtures" / "resmi_gazete_kararlar_sample.json"
 
@@ -110,3 +111,13 @@ def test_parse_kararlar_skips_record_missing_url_instead_of_raising(caplog):
 
     assert len(kararlar) == 2
     assert "url" in caplog.text
+
+
+def test_fetch_veri_passes_guven_paketi_to_requests():
+    fake_response = Mock()
+    fake_response.json.return_value = {"data": []}
+    fake_response.raise_for_status = Mock()
+    with patch("scrapers.resmi_gazete.requests.post", return_value=fake_response) as mock_post:
+        resmi_gazete.fetch_veri("https://example.com/api")
+    _, kwargs = mock_post.call_args
+    assert kwargs["verify"] == tammetin.guven_paketi()
