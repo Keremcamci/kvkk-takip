@@ -42,6 +42,7 @@ def parse_karar_listesi(html: str, base_url: str = KVKK_LIST_URL) -> list[dict]:
 
 
 def fetch_page(url: str = KVKK_LIST_URL, timeout: int = 15) -> str:
+    # www.kvkk.gov.tr sertifika zincirini eksiksiz gönderiyor (BDDK/Resmi Gazete'nin aksine) — guven_paketi() gerekmiyor.
     response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
     response.raise_for_status()
     return response.text

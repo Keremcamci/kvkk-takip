@@ -29,6 +29,11 @@ python backend.py
 # http://localhost:5001 adresini aç
 ```
 
+Not: `--scrape` artık tam metin çıkarımı yüzünden öncekinden belirgin
+şekilde daha uzun sürebilir (karar başına, kendi timeout'u olan ek
+sıralı indirmeler) — sıkı bir timeout'a sahip bir cron job kullanıyorsanız
+bunu göz önünde bulundurun.
+
 ### Kalıcı hatalardan kurtarma
 
 Bir karar üst üste 3 kez sınıflandırılamazsa (örn. `.env` içindeki
@@ -73,6 +78,14 @@ BDDK ve KVKK kararları artık (mümkün olduğunda) gerçek karar metninden
 sınıflandırılıyor — BDDK için doğrudan PDF, KVKK için (kaynağa göre)
 kendi detay sayfasındaki özet veya PDF. Tam metin indirilemezse (ağ
 hatası, taranmış/görsel PDF, vb.) sessizce başlığa düşülür.
+
+Bu tam metin indirme, sertifika zincirini eksik gönderen bazı siteler
+(BDDK, Resmi Gazete) için `scrapers/certs/*.pem` altında paketlenmiş
+belirli TLS ara sertifikalarına dayanıyor. Hedef site sertifika
+altyapısını gelecekte değiştirirse, o kaynak için tam metin çıkarımı
+sessizce (hata vermeden, `logging.warning` ile) başlığa geri düşer — bu
+bir bakım kalemidir, kalıcı bir çözüm değildir; bundle'ın güncellenmesi
+gerekebilir.
 
 SPK ve Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
 SPK'nın "Dosya" linki JavaScript ile render edilen bir sayfa (düz bir
