@@ -26,6 +26,20 @@ def test_pdf_metni_cek_extracts_real_text_from_pdf():
     assert "karar verilmiştir" in metin
 
 
+def test_pdf_metni_cek_accepts_differently_cased_content_type():
+    """Bir sunucu "Content-Type: Application/PDF" (farklı büyük/küçük harf)
+    gönderse bile, ya da başlık PDF olduğunu doğru söylemese bile gerçek
+    PDF imza baytları (%PDF-) varsa içerik kabul edilmeli."""
+    with patch(
+        "scrapers.tammetin.requests.get",
+        return_value=_pdf_response(content_type="Application/PDF"),
+    ):
+        metin = tammetin.pdf_metni_cek("https://example.com/karar.pdf")
+    assert metin is not None
+    assert "BLG Varlık Yönetim" in metin
+    assert "karar verilmiştir" in metin
+
+
 def test_pdf_metni_cek_returns_none_on_network_error(caplog):
     with patch("scrapers.tammetin.requests.get", side_effect=ConnectionError("bağlantı koptu")):
         with caplog.at_level(logging.WARNING):
@@ -35,7 +49,15 @@ def test_pdf_metni_cek_returns_none_on_network_error(caplog):
 
 
 def test_pdf_metni_cek_returns_none_for_non_pdf_content_type(caplog):
-    with patch("scrapers.tammetin.requests.get", return_value=_pdf_response(content_type="text/html")):
+    # _pdf_response()'ın varsayılan içeriği gerçek bir PDF'in baytlarıdır
+    # (BDDK fixture) — Fix 5'in %PDF- imza kontrolü sayesinde bu artık
+    # content_type ne olursa olsun kabul edilir. Bu testin iddia ettiği
+    # senaryo (gerçekten PDF OLMAYAN bir yanıt) için içeriği de gerçek
+    # dışı bir baytla değiştirmek gerekir, aksi halde imza kontrolü testi
+    # geçersiz kılar.
+    fake = _pdf_response(content_type="text/html")
+    fake.content = b"<html><body>Bu bir PDF degil</body></html>"
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
         with caplog.at_level(logging.WARNING):
             metin = tammetin.pdf_metni_cek("https://example.com/sayfa")
     assert metin is None

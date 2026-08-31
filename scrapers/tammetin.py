@@ -70,8 +70,9 @@ def pdf_metni_cek(url: str, timeout: int = 15) -> str | None:
         logging.warning("Tam metin indirilemedi (%s): %s", url, exc)
         return None
 
-    content_type = response.headers.get("Content-Type", "").split(";")[0].strip()
-    if content_type != "application/pdf":
+    content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    pdf_imzali = response.content[:5] == b"%PDF-"
+    if content_type != "application/pdf" and not pdf_imzali:
         logging.warning("Beklenmeyen içerik tipi, PDF değil (%s): %s", url, content_type)
         return None
 
