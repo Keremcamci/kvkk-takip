@@ -27,6 +27,11 @@ def test_dosya_api_yolu_returns_none_when_content_id_missing():
     assert spk._dosya_api_yolu(item) is None
 
 
+def test_dosya_api_yolu_returns_none_when_content_id_is_empty_string():
+    item = {"contentSource": "IlkeKarari", "contentID": ""}
+    assert spk._dosya_api_yolu(item) is None
+
+
 def test_parse_kararlar_filters_out_non_karar_types():
     kararlar = spk.parse_kararlar(_fixture_veri())
     # Fixture'da 3 kayıt var: İlke Kararı, Kurul Kararı, Tebliğ.

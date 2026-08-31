@@ -23,7 +23,7 @@ def _dosya_api_yolu(item: dict) -> str | None:
     (SPA sayfası) düşer."""
     kaynak = item.get("contentSource")
     kimlik = item.get("contentID")
-    if not kaynak or kimlik is None:
+    if not kaynak or kimlik is None or kimlik == "":
         return None
     return f"api/{kaynak}/File/{kimlik}"
 
