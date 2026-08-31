@@ -279,3 +279,51 @@ def test_karar_var_mi_returns_true_for_known_url(conn):
         kaynak_url="https://example.com/biliniyor", ozet_ham="x",
     )
     assert db.karar_var_mi(conn, "https://example.com/biliniyor") is True
+
+
+def test_init_db_migrates_old_spk_url_scheme_to_avoid_duplicates(conn):
+    """SPK kararlarının kaynak_url'i eskiden SPA sayfasına gidiyordu,
+    artık doğrudan PDF API'sine gidiyor. Migrasyon çalışmazsa, aynı
+    karar --scrape'in bir sonraki koşusunda YENİ url ile ikinci kez
+    eklenir (kaynak_url UNIQUE olduğu için karar_var_mi bunları farklı
+    görür)."""
+    conn.execute(
+        "INSERT INTO kararlar (kaynak, baslik, tarih, kaynak_url, ozet_ham) "
+        "VALUES ('spk', 'Eski Şemalı Karar', '2026-01-01', "
+        "'https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377', 'x')"
+    )
+    conn.commit()
+    db.init_db(conn)
+    satir = conn.execute(
+        "SELECT kaynak_url FROM kararlar WHERE baslik = 'Eski Şemalı Karar'"
+    ).fetchone()
+    assert satir["kaynak_url"] == "https://mevzuat.spk.gov.tr/api/IlkeKarari/File/377"
+
+
+def test_init_db_migration_does_not_touch_other_kaynaklar(conn):
+    conn.execute(
+        "INSERT INTO kararlar (kaynak, baslik, tarih, kaynak_url, ozet_ham) "
+        "VALUES ('kvkk', 'KVKK Karar', '2026-01-01', "
+        "'https://www.kvkk.gov.tr/Icerik/1/1', 'x')"
+    )
+    conn.commit()
+    db.init_db(conn)
+    satir = conn.execute(
+        "SELECT kaynak_url FROM kararlar WHERE baslik = 'KVKK Karar'"
+    ).fetchone()
+    assert satir["kaynak_url"] == "https://www.kvkk.gov.tr/Icerik/1/1"
+
+
+def test_init_db_migration_is_idempotent(conn):
+    conn.execute(
+        "INSERT INTO kararlar (kaynak, baslik, tarih, kaynak_url, ozet_ham) "
+        "VALUES ('spk', 'Eski Şemalı Karar', '2026-01-01', "
+        "'https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377', 'x')"
+    )
+    conn.commit()
+    db.init_db(conn)
+    db.init_db(conn)
+    sayi = conn.execute(
+        "SELECT COUNT(*) AS n FROM kararlar WHERE baslik = 'Eski Şemalı Karar'"
+    ).fetchone()["n"]
+    assert sayi == 1

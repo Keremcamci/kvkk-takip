@@ -145,3 +145,25 @@ def test_scrape_and_store_does_not_refetch_full_text_for_known_kararlar(conn):
         ikinci_cagri_sayisi = mock_pdf.call_count
     assert ilk_cagri_sayisi == 2  # fixture'da 2 geçerli tür var (Tebliğ elenir)
     assert ikinci_cagri_sayisi == ilk_cagri_sayisi  # ikinci koşuda yeni çağrı yok
+
+
+def test_scrape_and_store_does_not_duplicate_kararlar_with_old_url_scheme(conn):
+    """Bu branch öncesi taranmış bir DB'de SPK kararları eski URL
+    şemasıyla (SPA sayfası) kayıtlıydı. db.init_db()'nin migrasyonu
+    çalışmazsa, bu test scrape_and_store'un aynı kararı YENİ url ile
+    ikinci kez eklediğini (çiftlenme) gösterirdi."""
+    conn.execute(
+        "INSERT INTO kararlar (kaynak, baslik, tarih, kaynak_url, ozet_ham, islendi_mi) "
+        "VALUES ('spk', "
+        "'Kurul Karar Organı’nın i-SPK 128.30 (27/08/2026 Tarihli ve 51/1568 S.K.) Sayılı İlke Kararı', "
+        "'2026-08-27', 'https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377', 'x', 1)"
+    )
+    conn.commit()
+    db.init_db(conn)  # migrasyon burada tetiklenir — gerçek akışta backend.py bunu her --scrape'ten önce zaten çağırıyor
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
+        spk.scrape_and_store(conn)
+    toplam = conn.execute(
+        "SELECT COUNT(*) AS n FROM kararlar WHERE kaynak = 'spk'"
+    ).fetchone()["n"]
+    assert toplam == 2  # fixture'da 2 geçerli tür var (Tebliğ elenir); migrasyon çalışmışsa çiftlenme olmaz

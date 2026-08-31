@@ -43,6 +43,24 @@ def get_connection(db_path=None) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     conn.execute(SCHEMA)
     conn.commit()
+    _spk_url_semasini_guncelle(conn)
+
+
+def _spk_url_semasini_guncelle(conn: sqlite3.Connection) -> None:
+    """SPK kararlarının kaynak_url'i eskiden SPA sayfasına
+    (`IlkeKarari/Dosya/{id}`) gidiyordu; artık doğrudan çalışan PDF
+    API'sine (`api/IlkeKarari/File/{id}`) işaret ediyor. Bu değişiklikten
+    ÖNCE taranmış bir DB'de eski şemalı SPK satırları kalmışsa,
+    kaynak_url UNIQUE olduğu için sonraki bir --scrape aynı kararları
+    yeni URL'de "yeni" sanıp ikinci kez ekler (çiftlenme + gereksiz LLM
+    yeniden sınıflandırması). Bu migrasyon idempotent'tir: eski şemalı
+    satır yoksa hiçbir şey yapmaz, tekrar çağrılması güvenlidir."""
+    conn.execute(
+        "UPDATE kararlar SET kaynak_url = replace(kaynak_url, "
+        "'/IlkeKarari/Dosya/', '/api/IlkeKarari/File/') "
+        "WHERE kaynak = 'spk' AND kaynak_url LIKE '%/IlkeKarari/Dosya/%'"
+    )
+    conn.commit()
 
 
 def insert_karar_if_new(conn, kaynak, baslik, tarih, kaynak_url, ozet_ham) -> bool:
