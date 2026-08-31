@@ -1,5 +1,7 @@
+import atexit
 import io
 import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -24,17 +26,38 @@ def guven_paketi() -> str:
     # Resmi Gazete: GeoTrust TLS RSA CA G1) — tarayıcılar bunu AIA ile
     # otomatik telafi eder, requests/certifi etmez. Kökleri zaten
     # certifi'de güvenilir; scrapers/certs/ altındaki HER .pem dosyası
-    # certifi'nin güncel paketine eklenir — yeni bir site aynı sorunu
-    # verirse tek yapılması gereken oraya bir dosya daha eklemek.
+    # temel pakete eklenir — yeni bir site aynı sorunu verirse tek
+    # yapılması gereken oraya bir dosya daha eklemek.
+    #
+    # Temel paket normalde certifi'nin güncel kök listesi, ama operatör
+    # TLS'i yeniden imzalayan bir kurumsal proxy arkasındaysa (requests
+    # bunu REQUESTS_CA_BUNDLE/CURL_CA_BUNDLE ile onore eder — AMA SADECE
+    # verify= AÇIKÇA VERİLMEDİĞİNDE; explicit verify= bu env
+    # değişkenlerini görmezden gelir) operatörün kendi paketi esas
+    # alınır, aksi halde bu modülün eklediği verify= parametreleri
+    # operatörün proxy'sini sessizce devre dışı bırakırdı.
     global guven_paketi_yolu
     if guven_paketi_yolu is None:
-        parcalar = [Path(certifi.where()).read_bytes()]
+        temel_yol = (
+            os.environ.get("REQUESTS_CA_BUNDLE")
+            or os.environ.get("CURL_CA_BUNDLE")
+            or certifi.where()
+        )
+        parcalar = [Path(temel_yol).read_bytes()]
         for sertifika in sorted(_EK_SERTIFIKALAR_DIZINI.glob("*.pem")):
             parcalar.append(sertifika.read_bytes())
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as f:
             f.write(b"\n".join(parcalar))
             guven_paketi_yolu = f.name
+        atexit.register(_gecici_dosyayi_sil, guven_paketi_yolu)
     return guven_paketi_yolu
+
+
+def _gecici_dosyayi_sil(yol: str) -> None:
+    """guven_paketi()'nin oluşturduğu geçici dosyayı process çıkışında
+    temizler — her `python backend.py --scrape` çalıştırmasında ~240 KB
+    (certifi paketi büyüklüğü) sızdırmamak için."""
+    Path(yol).unlink(missing_ok=True)
 
 
 def pdf_metni_cek(url: str, timeout: int = 15) -> str | None:

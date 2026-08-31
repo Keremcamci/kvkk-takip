@@ -172,3 +172,37 @@ def test_guven_paketi_includes_resmi_gazete_intermediate_certificate():
     icerik = Path(yol).read_bytes()
     ara_sertifika = (tammetin._EK_SERTIFIKALAR_DIZINI / "geotrust_tls_rsa_ca_g1.pem").read_bytes()
     assert ara_sertifika in icerik
+
+
+def test_guven_paketi_uses_requests_ca_bundle_env_var_as_base_when_set(monkeypatch, tmp_path):
+    """verify= açıkça verildiğinde requests REQUESTS_CA_BUNDLE'ı YOK SAYAR
+    — bu yüzden guven_paketi() bu env değişkenini KENDİSİ okuyup temel
+    paket olarak kullanmalı, aksi halde kurumsal proxy arkasındaki bir
+    operatörün kendi CA paketi sessizce devre dışı kalır."""
+    ozel_paket = tmp_path / "ozel_ca_bundle.pem"
+    ozel_paket.write_bytes(b"-----BEGIN CERTIFICATE-----\nSAHTE\n-----END CERTIFICATE-----\n")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(ozel_paket))
+    onceki_deger = tammetin.guven_paketi_yolu
+    tammetin.guven_paketi_yolu = None
+    try:
+        yol = tammetin.guven_paketi()
+        icerik = Path(yol).read_bytes()
+        assert b"SAHTE" in icerik
+    finally:
+        tammetin.guven_paketi_yolu = onceki_deger
+
+
+def test_guven_paketi_falls_back_to_certifi_when_no_env_var_set(monkeypatch):
+    import certifi
+
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+    onceki_deger = tammetin.guven_paketi_yolu
+    tammetin.guven_paketi_yolu = None
+    try:
+        yol = tammetin.guven_paketi()
+        icerik = Path(yol).read_bytes()
+        certifi_icerik = Path(certifi.where()).read_bytes()
+        assert certifi_icerik in icerik
+    finally:
+        tammetin.guven_paketi_yolu = onceki_deger
