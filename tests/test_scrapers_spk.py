@@ -12,6 +12,21 @@ def _fixture_veri() -> list[dict]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def test_dosya_api_yolu_builds_url_from_content_source_and_id():
+    item = {"contentSource": "IlkeKarari", "contentID": 377}
+    assert spk._dosya_api_yolu(item) == "api/IlkeKarari/File/377"
+
+
+def test_dosya_api_yolu_returns_none_when_content_source_missing():
+    item = {"contentID": 377}
+    assert spk._dosya_api_yolu(item) is None
+
+
+def test_dosya_api_yolu_returns_none_when_content_id_missing():
+    item = {"contentSource": "IlkeKarari"}
+    assert spk._dosya_api_yolu(item) is None
+
+
 def test_parse_kararlar_filters_out_non_karar_types():
     kararlar = spk.parse_kararlar(_fixture_veri())
     # Fixture'da 3 kayıt var: İlke Kararı, Kurul Kararı, Tebliğ.
@@ -26,7 +41,7 @@ def test_parse_kararlar_sorts_newest_first_and_maps_fields():
     assert ilk["tarih"] == "2026-08-27"
     assert "i-SPK 128.30" in ilk["baslik"]
     assert ilk["ozet_ham"] == ilk["baslik"]
-    assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377"
+    assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/api/IlkeKarari/File/377"
 
     ikinci = kararlar[1]
     assert ikinci["tarih"] == "2026-08-13"
@@ -92,3 +107,11 @@ def test_parse_kararlar_skips_record_missing_link_instead_of_raising(caplog):
     assert len(kararlar) == 1  # sadece "İlke Kararı" olan ilk kayıt kaldı
     assert kararlar[0]["tarih"] == "2026-08-27"
     assert "link" in caplog.text
+
+
+def test_parse_kararlar_falls_back_to_raw_link_when_content_fields_missing():
+    veri = _fixture_veri()
+    del veri[0]["contentSource"]
+    kararlar = spk.parse_kararlar(veri)
+    ilk = next(k for k in kararlar if "i-SPK 128.30" in k["baslik"])
+    assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377"

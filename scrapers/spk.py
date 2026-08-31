@@ -11,6 +11,22 @@ SPK_BASE_URL = "https://mevzuat.spk.gov.tr/"
 GECERLI_TURLER = {"Kurul Kararı", "İlke Kararı"}
 
 
+def _dosya_api_yolu(item: dict) -> str | None:
+    """SPK'nın liste API'sindeki `link` alanı bir React SPA kabuğuna gider
+    (`IlkeKarari/Dosya/{id}`) — içerik JavaScript ile render ediliyor, düz
+    bir HTTP GET ile ulaşılamıyor. Gerçek PDF ise sayfanın kendi arka plan
+    çağrısı izlenerek bulunan `api/{contentSource}/File/{id}` üzerinden
+    düz bir GET ile geliyor (canlı doğrulandı — kimlik doğrulama/cookie
+    gerekmiyor, hem "İlke Kararı" hem "Kurul Kararı" türü için çalışıyor).
+    contentSource/contentID eksikse None döner, çağıran ham `link`'e
+    (SPA sayfası) düşer."""
+    kaynak = item.get("contentSource")
+    kimlik = item.get("contentID")
+    if not kaynak or kimlik is None:
+        return None
+    return f"api/{kaynak}/File/{kimlik}"
+
+
 def parse_kararlar(veri: list[dict], base_url: str = SPK_BASE_URL) -> list[dict]:
     kararlar = []
     for item in veri:
@@ -30,7 +46,7 @@ def parse_kararlar(veri: list[dict], base_url: str = SPK_BASE_URL) -> list[dict]
         kararlar.append({
             "baslik": baslik,
             "tarih": tarih_iso[:10],
-            "kaynak_url": urljoin(base_url, link),
+            "kaynak_url": urljoin(base_url, _dosya_api_yolu(item) or link),
             "ozet_ham": baslik,
         })
     kararlar.sort(key=lambda k: k["tarih"], reverse=True)
