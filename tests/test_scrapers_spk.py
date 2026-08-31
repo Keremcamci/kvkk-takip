@@ -60,21 +60,24 @@ def test_fetch_veri_returns_parsed_json():
 
 
 def test_scrape_and_store_inserts_new_kararlar(conn):
-    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         yeni_sayisi = spk.scrape_and_store(conn)
     assert yeni_sayisi == 2  # Tebliğ elenmiş olmalı
     assert len(db.get_pending_kararlar(conn)) == 2
 
 
 def test_scrape_and_store_is_idempotent(conn):
-    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         spk.scrape_and_store(conn)
         ikinci_calistirma = spk.scrape_and_store(conn)
     assert ikinci_calistirma == 0
 
 
 def test_scrape_and_store_respects_limit(conn):
-    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         yeni_sayisi = spk.scrape_and_store(conn, limit=1)
     assert yeni_sayisi == 1
 
@@ -115,3 +118,30 @@ def test_parse_kararlar_falls_back_to_raw_link_when_content_fields_missing():
     kararlar = spk.parse_kararlar(veri)
     ilk = next(k for k in kararlar if "i-SPK 128.30" in k["baslik"])
     assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377"
+
+
+def test_scrape_and_store_uses_full_text_when_pdf_extraction_succeeds(conn):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value="Gerçek karar metni burada."):
+        spk.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == "Gerçek karar metni burada."
+
+
+def test_scrape_and_store_falls_back_to_title_when_pdf_extraction_fails(conn):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
+        spk.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == karar["baslik"]
+
+
+def test_scrape_and_store_does_not_refetch_full_text_for_known_kararlar(conn):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None) as mock_pdf:
+        spk.scrape_and_store(conn)
+        ilk_cagri_sayisi = mock_pdf.call_count
+        spk.scrape_and_store(conn)
+        ikinci_cagri_sayisi = mock_pdf.call_count
+    assert ilk_cagri_sayisi == 2  # fixture'da 2 geçerli tür var (Tebliğ elenir)
+    assert ikinci_cagri_sayisi == ilk_cagri_sayisi  # ikinci koşuda yeni çağrı yok

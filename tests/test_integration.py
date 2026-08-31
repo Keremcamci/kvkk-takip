@@ -259,7 +259,7 @@ def _uc_kaynak_pipeline_calistir(conn, client):
     with patch(
         "scrapers.spk.fetch_veri",
         return_value=json.loads(SPK_FIXTURE.read_text(encoding="utf-8")),
-    ):
+    ), patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         spk.scrape_and_store(conn)
     with patch(
         "scrapers.resmi_gazete.fetch_veri",

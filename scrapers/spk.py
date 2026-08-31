@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 import requests
 
 import db
+from scrapers import tammetin
 from scrapers.common import USER_AGENT
 
 SPK_API_URL = "https://mevzuat.spk.gov.tr/api/Search/All"
@@ -64,6 +65,11 @@ def scrape_and_store(conn, url: str = SPK_API_URL, limit: int = 10) -> int:
     kararlar = parse_kararlar(veri)[:limit]
     yeni_sayisi = 0
     for karar in kararlar:
+        if db.karar_var_mi(conn, karar["kaynak_url"]):
+            continue
+        tam_metin = tammetin.pdf_metni_cek(karar["kaynak_url"])
+        if tam_metin:
+            karar["ozet_ham"] = tam_metin
         if db.insert_karar_if_new(conn, kaynak="spk", **karar):
             yeni_sayisi += 1
     return yeni_sayisi
