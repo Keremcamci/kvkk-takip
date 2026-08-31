@@ -94,7 +94,7 @@ Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
 linki tek bir maddeye değil günün fihrist sayfasına gidiyor (bkz.
 aşağıdaki not).
 
-Kapsam dışı (ileriye dönük): SPK/Resmi Gazete için tam metin çıkarımı ve
+Kapsam dışı (ileriye dönük): Resmi Gazete için tam metin çıkarımı ve
 sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
 
 Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK
