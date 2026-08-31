@@ -242,17 +242,19 @@ BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2, "resmi_gazete": 3}
 
 def _uc_kaynak_pipeline_calistir(conn, client):
     """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır.
-    (sonuc, kvkk_pdf_mock, bddk_pdf_mock) üçlüsünü döner — son ikisi
-    yalnızca tammetin'in gerçekten çağrıldığını (ağa çıkılmadığını)
-    doğrulamak isteyen testler için; diğer çağıranlar döndürülen değeri
-    yakalamayabilir, Python bunu zorunlu kılmaz."""
+    tammetin çağrıları burada patch'lenerek gerçek ağa çıkılması
+    engellenir; bu artık conftest.py'deki autouse
+    gercek_aga_cikisi_engelle fixture'ı ile ikinci bir güvenlik
+    katmanına da sahip (bir patch yanlışlıkla silinirse test sessizce
+    gerçek bir siteye bağlanmak yerine anlaşılır bir hata ile başarısız
+    olur), bu yüzden call_count assertion'larına artık gerek yok."""
     with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")), \
-         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None) as kvkk_pdf_mock, \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
          patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
     with patch(
         "scrapers.bddk.fetch_page", return_value=BDDK_FIXTURE.read_text(encoding="utf-8")
-    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None) as bddk_pdf_mock:
+    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
         bddk.scrape_and_store(conn)
     with patch(
         "scrapers.spk.fetch_veri",
@@ -267,7 +269,7 @@ def _uc_kaynak_pipeline_calistir(conn, client):
     sonuc = classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
     )
-    return sonuc, kvkk_pdf_mock, bddk_pdf_mock
+    return sonuc
 
 
 def _kaynaklar(kararlar) -> set:
@@ -276,12 +278,7 @@ def _kaynaklar(kararlar) -> set:
 
 def test_all_three_sources_compose_through_classification_and_profil_filter(conn):
     """Dört kaynak birlikte tarandığında pipeline uçtan uca tutarlı olmalı."""
-    sonuc, mock_kvkk_pdf, mock_bddk_pdf = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
-    # Bu assertion'lar, mock'lar yanlışlıkla silinirse (veya
-    # scrape_and_store artık tammetin'i çağırmazsa) testin sessizce
-    # geçmemesini sağlar — gerçekten çağrıldığını kanıtlar.
-    assert mock_kvkk_pdf.call_count >= 1
-    assert mock_bddk_pdf.call_count >= 1
+    sonuc = _uc_kaynak_pipeline_calistir(conn, SahteClient(UC_KAYNAK_ETIKETLERI))
 
     # 3 (kvkk) + 3 (bddk) + 2 (spk; "Tebliğ" taramada elendi) + 3 (resmi_gazete) = 11
     assert sonuc == {"basarili": 11, "basarisiz": 0, "kalici_hata": 0}
