@@ -140,6 +140,40 @@ def test_kvkk_sayfa_metni_cek_returns_none_on_network_error(caplog):
     assert "indirilemedi" in caplog.text
 
 
+def test_kvkk_sayfa_metni_cek_falls_back_to_none_for_invisible_only_content(caplog):
+    """BeautifulSoup'un get_text(strip=True) fonksiyonu görünmez Unicode
+    karakterleri (ör. U+200B ZERO WIDTH SPACE) KALDIRMAZ, Python'ın
+    str.strip()'i de bunları temizlemez ('​'.isspace() False döner).
+    Eşleşen div SADECE görünmez karakterler içeriyorsa (KVKK'nın işaretlemesi
+    ileride değişip boş-ama-var bir eleman verirse gerçekçi bir senaryo),
+    eski davranış bu görünmez çöpü gerçek içerikmiş gibi döndürüyordu;
+    doğrusu, tamamen boş string durumunda olduğu gibi, başlığa düşmek."""
+    html = (
+        '<html><body><div class="news__detail-article">'
+        "​​‌﻿"
+        "</div></body></html>"
+    )
+    fake = Mock()
+    fake.text = html
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
+        with caplog.at_level(logging.WARNING):
+            metin = tammetin.kvkk_sayfa_metni_cek("https://www.kvkk.gov.tr/Icerik/1/1")
+    assert metin is None
+    assert "bulunamadı" in caplog.text
+
+
+def test_kvkk_sayfa_metni_cek_truncates_to_max_length():
+    uzun_metin = "a" * (tammetin.MAKS_METIN_KARAKTER + 500)
+    html = f'<html><body><div class="news__detail-article">{uzun_metin}</div></body></html>'
+    fake = Mock()
+    fake.text = html
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
+        metin = tammetin.kvkk_sayfa_metni_cek("https://www.kvkk.gov.tr/Icerik/1/1")
+    assert len(metin) == tammetin.MAKS_METIN_KARAKTER
+
+
 def test_guven_paketi_includes_all_committed_intermediate_certificates():
     yol = tammetin.guven_paketi()
     icerik = Path(yol).read_bytes()

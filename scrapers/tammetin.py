@@ -111,4 +111,13 @@ def kvkk_sayfa_metni_cek(url: str, timeout: int = 15) -> str | None:
         return None
 
     metin = makale.get_text(separator=" ", strip=True)
-    return metin[:MAKS_METIN_KARAKTER] if metin else None
+    # str.strip() görünmez Unicode karakterleri (ör. U+200B ZERO WIDTH
+    # SPACE) KALDIRMAZ — isspace() bunlar için False döner. Bu yüzden
+    # boşluk kontrolü ayrıca bu karakterleri de çıkararak yapılır; asıl
+    # döndürülen metin YİNE `metin` (aşırı temizlenmemiş) değişkeninden
+    # gelir, yalnızca "gerçekten boş mu?" kontrolü daha sıkı.
+    gorunmez_temizlenmis = metin.strip("​‌‍﻿ \t\n\r")
+    if not gorunmez_temizlenmis:
+        logging.warning("KVKK detay sayfasında metin bulunamadı (görünmez/boş içerik olabilir): %s", url)
+        return None
+    return metin[:MAKS_METIN_KARAKTER]
