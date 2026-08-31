@@ -6,6 +6,7 @@ from urllib.parse import urljoin
 import requests
 
 import db
+from scrapers import tammetin
 from scrapers.common import USER_AGENT
 
 RESMI_GAZETE_FILTER_URL = "https://www.resmigazete.gov.tr/Home/Filter"
@@ -72,6 +73,7 @@ def fetch_veri(url: str = RESMI_GAZETE_FILTER_URL, timeout: int = 15) -> dict:
         json=_filtre_govdesi(),
         headers={"User-Agent": USER_AGENT},
         timeout=timeout,
+        verify=tammetin.guven_paketi(),
     )
     response.raise_for_status()
     return response.json()

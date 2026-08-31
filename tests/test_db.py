@@ -267,3 +267,15 @@ def test_mark_karar_failed_respects_configurable_threshold(conn, monkeypatch):
 
     assert db.mark_karar_failed(conn, karar_id) is False
     assert db.mark_karar_failed(conn, karar_id) is True
+
+
+def test_karar_var_mi_returns_false_for_unknown_url(conn):
+    assert db.karar_var_mi(conn, "https://example.com/hic-yok") is False
+
+
+def test_karar_var_mi_returns_true_for_known_url(conn):
+    db.insert_karar_if_new(
+        conn, kaynak="kvkk", baslik="Karar", tarih="2026-01-01",
+        kaynak_url="https://example.com/biliniyor", ozet_ham="x",
+    )
+    assert db.karar_var_mi(conn, "https://example.com/biliniyor") is True

@@ -82,7 +82,9 @@ class SahteClient:
 def _pipeline_calistir(conn, client) -> dict:
     """scraper + classifier'ı gerçek fixture HTML'i üzerinde uçtan uca koşar."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scrapers.kvkk.fetch_page", return_value=html):
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
     return classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
@@ -166,7 +168,9 @@ def test_reset_failed_unsticks_kararlar_and_pipeline_recovers(conn):
     """API anahtarı hatalıyken kalıcı hataya düşen kararlar, anahtar
     düzeltilip --reset-failed çalıştırıldıktan sonra sınıflandırılabilmeli."""
     html = FIXTURE.read_text(encoding="utf-8")
-    with patch("scrapers.kvkk.fetch_page", return_value=html):
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
 
     class BozukClient:
@@ -236,13 +240,21 @@ UC_KAYNAK_ETIKETLERI = {
 BEKLENEN_KAYNAK_SAYILARI = {"kvkk": 3, "bddk": 3, "spk": 2, "resmi_gazete": 3}
 
 
-def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
-    """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır."""
-    with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")):
+def _uc_kaynak_pipeline_calistir(conn, client):
+    """Dört fixture'ı da AYNI conn'a tarar, sonra hepsini sınıflandırır.
+    tammetin çağrıları burada patch'lenerek gerçek ağa çıkılması
+    engellenir; bu artık conftest.py'deki autouse
+    gercek_aga_cikisi_engelle fixture'ı ile ikinci bir güvenlik
+    katmanına da sahip (bir patch yanlışlıkla silinirse test sessizce
+    gerçek bir siteye bağlanmak yerine anlaşılır bir hata ile başarısız
+    olur), bu yüzden call_count assertion'larına artık gerek yok."""
+    with patch("scrapers.kvkk.fetch_page", return_value=FIXTURE.read_text(encoding="utf-8")), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None), \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None):
         kvkk.scrape_and_store(conn)
     with patch(
         "scrapers.bddk.fetch_page", return_value=BDDK_FIXTURE.read_text(encoding="utf-8")
-    ):
+    ), patch("scrapers.bddk.tammetin.pdf_metni_cek", return_value=None):
         bddk.scrape_and_store(conn)
     with patch(
         "scrapers.spk.fetch_veri",
@@ -254,9 +266,10 @@ def _uc_kaynak_pipeline_calistir(conn, client) -> dict:
         return_value=json.loads(RESMI_GAZETE_FIXTURE.read_text(encoding="utf-8")),
     ):
         resmi_gazete.scrape_and_store(conn)
-    return classifier.classify_pending(
+    sonuc = classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
     )
+    return sonuc
 
 
 def _kaynaklar(kararlar) -> set:

@@ -29,6 +29,11 @@ python backend.py
 # http://localhost:5001 adresini aç
 ```
 
+Not: `--scrape` artık tam metin çıkarımı yüzünden öncekinden belirgin
+şekilde daha uzun sürebilir (karar başına, kendi timeout'u olan ek
+sıralı indirmeler) — sıkı bir timeout'a sahip bir cron job kullanıyorsanız
+bunu göz önünde bulundurun.
+
 ### Kalıcı hatalardan kurtarma
 
 Bir karar üst üste 3 kez sınıflandırılamazsa (örn. `.env` içindeki
@@ -69,9 +74,26 @@ sayfasının/API yanıtının ilk sayfası):
 Bir kaynağa erişilemezse diğerleri çalışmaya devam eder; hata `--scrape`
 çıktısında `logging.warning` ile (yığın iziyle birlikte) raporlanır.
 
-Kapsam dışı (ileriye dönük): PDF tam metin çıkarımı (yalnızca liste
-sayfasındaki başlık kullanılıyor) ve sayfalama — yani her kaynağın ilk
-sayfasından öteye gidilmiyor.
+BDDK ve KVKK kararları artık (mümkün olduğunda) gerçek karar metninden
+sınıflandırılıyor — BDDK için doğrudan PDF, KVKK için (kaynağa göre)
+kendi detay sayfasındaki özet veya PDF. Tam metin indirilemezse (ağ
+hatası, taranmış/görsel PDF, vb.) sessizce başlığa düşülür.
+
+Bu tam metin indirme, sertifika zincirini eksik gönderen bazı siteler
+(BDDK, Resmi Gazete) için `scrapers/certs/*.pem` altında paketlenmiş
+belirli TLS ara sertifikalarına dayanıyor. Hedef site sertifika
+altyapısını gelecekte değiştirirse, o kaynak için tam metin çıkarımı
+sessizce (hata vermeden, `logging.warning` ile) başlığa geri düşer — bu
+bir bakım kalemidir, kalıcı bir çözüm değildir; bundle'ın güncellenmesi
+gerekebilir.
+
+SPK ve Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
+SPK'nın "Dosya" linki JavaScript ile render edilen bir sayfa (düz bir
+HTTP isteğiyle içeriğe ulaşılamıyor); Resmi Gazete'nin linki tek bir
+maddeye değil günün fihrist sayfasına gidiyor (bkz. aşağıdaki not).
+
+Kapsam dışı (ileriye dönük): SPK/Resmi Gazete için tam metin çıkarımı ve
+sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
 
 Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK
 kararlarının çoğu doğal olarak `finans` etiketi alır. Bu yüzden varsayılan

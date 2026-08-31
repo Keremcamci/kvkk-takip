@@ -75,13 +75,14 @@ KARAR_SINIFLANDIRMA_TOOL = {
 def build_prompt(baslik: str, tarih, ozet_ham: str, kaynak: str = "kvkk") -> str:
     kurum_adi = KURUM_ADLARI.get(kaynak, kaynak)
     return (
-        f"Aşağıda bir {kurum_adi} kararının "
-        "başlığı verilmiştir. Bu kararı karar_sinifla aracını kullanarak "
-        "sınıflandır.\n\n"
+        f"Aşağıda bir {kurum_adi} kararının başlığı ve (varsa) tam metni "
+        "ya da özeti verilmiştir. Bu kararı karar_sinifla aracını "
+        "kullanarak sınıflandır.\n\n"
         "Sektör etiketleme kuralı (ÖNEMLİ): "
         f"{SEKTOR_ETIKETLEME_KURALI}\n\n"
         f"Tarih: {tarih or 'bilinmiyor'}\n"
-        f"Başlık/Özet: {ozet_ham}\n"
+        f"Başlık: {baslik}\n"
+        f"Metin: <karar_metni>\n{ozet_ham}\n</karar_metni>\n"
     )
 
 

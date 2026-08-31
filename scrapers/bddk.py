@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import db
+from scrapers import tammetin
 from scrapers.common import USER_AGENT
 
 BDDK_LIST_URL = "https://www.bddk.org.tr/Mevzuat/Liste/55"
@@ -39,7 +40,9 @@ def parse_kararlar(html: str, base_url: str = BDDK_LIST_URL) -> list[dict]:
 
 
 def fetch_page(url: str = BDDK_LIST_URL, timeout: int = 15) -> str:
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+    response = requests.get(
+        url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=tammetin.guven_paketi()
+    )
     response.raise_for_status()
     return response.text
 
@@ -49,6 +52,11 @@ def scrape_and_store(conn, url: str = BDDK_LIST_URL, limit: int = 10) -> int:
     kararlar = parse_kararlar(html, base_url=url)[:limit]
     yeni_sayisi = 0
     for karar in kararlar:
+        if db.karar_var_mi(conn, karar["kaynak_url"]):
+            continue
+        tam_metin = tammetin.pdf_metni_cek(karar["kaynak_url"])
+        if tam_metin:
+            karar["ozet_ham"] = tam_metin
         if db.insert_karar_if_new(conn, kaynak="bddk", **karar):
             yeni_sayisi += 1
     return yeni_sayisi
