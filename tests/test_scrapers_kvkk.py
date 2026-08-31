@@ -127,3 +127,52 @@ def test_scrape_and_store_does_not_refetch_full_text_for_known_kararlar(conn):
     assert ilk_sayfa == 1  # 1 dahili (kvkk.gov.tr) link
     assert ikinci_pdf == ilk_pdf
     assert ikinci_sayfa == ilk_sayfa
+
+
+# --- netloc == "www.kvkk.gov.tr" tam eşleşme kontrolü, benzer/sahte
+# hostlara karşı kilitleme ------------------------------------------------
+#
+# scrape_and_store'daki dallanma (urlparse(...).netloc == "www.kvkk.gov.tr")
+# zaten TAM string eşitliği kullanıyor (substring/`.endswith` değil), yani
+# doğru. Ama bunu kilitleyen bir regresyon testi yoktu — bu testler tam da
+# bunu yapıyor: "www.kvkk.gov.tr" görünümlü ama GERÇEKTE farklı bir host
+# olan URL'lerin yanlışlıkla kvkk_sayfa_metni_cek'e (iç sayfa ayrıştırıcı)
+# değil, pdf_metni_cek'e (else dalı, dış/PDF indiricisi) düşmesi gerekir.
+
+_BENZER_HOST_KARAR_SABLONU = """
+<div class="members__item">
+  <div class="members__item-meta">
+    <h2>Benzer Host Testi Hakkında Kişisel Verileri Koruma
+    Kurulunun 05.03.2026 Tarihli ve 2026/8888 Sayılı Kararı</h2>
+    <a class="read-more" href="{url}">Devamını Gör</a>
+  </div>
+</div>
+"""
+
+
+def test_scrape_and_store_routes_lookalike_subdomain_url_to_pdf_metni_cek(conn):
+    """https://www.kvkk.gov.tr.evil.com/... netloc'u "www.kvkk.gov.tr.evil.com"
+    olur — "www.kvkk.gov.tr" ile TAM eşleşmez, bu yüzden else dalına
+    (pdf_metni_cek) düşmeli, kvkk_sayfa_metni_cek'e değil."""
+    html = _BENZER_HOST_KARAR_SABLONU.format(
+        url="https://www.kvkk.gov.tr.evil.com/Icerik/1/sahte"
+    )
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None) as mock_pdf, \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None) as mock_sayfa:
+        kvkk.scrape_and_store(conn)
+    assert mock_pdf.call_count == 1
+    assert mock_sayfa.call_count == 0
+
+
+def test_scrape_and_store_routes_missing_www_prefix_url_to_pdf_metni_cek(conn):
+    """https://notwww.kvkk.gov.tr/... netloc'u "notwww.kvkk.gov.tr" olur —
+    "www.kvkk.gov.tr" ile TAM eşleşmez, bu yüzden else dalına
+    (pdf_metni_cek) düşmeli, kvkk_sayfa_metni_cek'e değil."""
+    html = _BENZER_HOST_KARAR_SABLONU.format(url="https://notwww.kvkk.gov.tr/Icerik/1/sahte")
+    with patch("scrapers.kvkk.fetch_page", return_value=html), \
+         patch("scrapers.kvkk.tammetin.pdf_metni_cek", return_value=None) as mock_pdf, \
+         patch("scrapers.kvkk.tammetin.kvkk_sayfa_metni_cek", return_value=None) as mock_sayfa:
+        kvkk.scrape_and_store(conn)
+    assert mock_pdf.call_count == 1
+    assert mock_sayfa.call_count == 0
