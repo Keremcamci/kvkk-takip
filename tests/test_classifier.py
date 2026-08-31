@@ -138,6 +138,16 @@ def test_build_prompt_includes_sektor_labeling_rule():
     assert "2026-01-01" in prompt
 
 
+def test_build_prompt_includes_baslik_separately_from_ozet_ham():
+    """`baslik` parametresi eskiden prompt'ta hiç kullanılmıyordu — ozet_ham
+    başlığın bir kopyası olduğu sürece zararsızdı, ama artık ozet_ham gerçek
+    tam metin olabiliyor ve o zaman gerçek başlık (karar no/tarih taşıyan
+    tek alan) prompt'tan tamamen düşerdi."""
+    prompt = classifier.build_prompt("Gerçek Başlık Metni", "2026-01-01", "Farklı bir tam metin")
+    assert "Gerçek Başlık Metni" in prompt
+    assert "Farklı bir tam metin" in prompt
+
+
 # --- Hata görünürlüğü ve model yapılandırması ---
 
 
