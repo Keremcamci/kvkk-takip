@@ -121,3 +121,37 @@ def kvkk_sayfa_metni_cek(url: str, timeout: int = 15) -> str | None:
         logging.warning("KVKK detay sayfasında metin bulunamadı (görünmez/boş içerik olabilir): %s", url)
         return None
     return metin[:MAKS_METIN_KARAKTER]
+
+
+def resmi_gazete_madde_metni_cek(url: str, timeout: int = 15) -> str | None:
+    try:
+        response = requests.get(
+            url, headers={"User-Agent": USER_AGENT}, timeout=timeout, verify=guven_paketi()
+        )
+        response.raise_for_status()
+    except (requests.RequestException, ConnectionError, OSError) as exc:
+        logging.warning("Resmi Gazete madde sayfası indirilemedi (%s): %s", url, exc)
+        return None
+
+    # Bu .htm sayfaları eski bir "MS Word'den web sayfası olarak kaydet"
+    # çıktısı ve Windows-1254 (Türkçe) kodlamalı — HTTP Content-Type
+    # header'ında charset yok, sadece HTML içindeki <meta>'da beyan
+    # ediliyor. response.text (requests'in kendi tahmini) bu yüzden
+    # Türkçe karakterleri bozuk decode eder; bayt içeriği elle
+    # windows-1254 olarak decode edilir.
+    html = response.content.decode("windows-1254", errors="replace")
+    soup = BeautifulSoup(html, "html.parser")
+    icerik = soup.select_one("div.Section1") or soup.body
+    if icerik is None:
+        logging.warning("Resmi Gazete madde sayfasında beklenen içerik bulunamadı: %s", url)
+        return None
+
+    metin = icerik.get_text(separator=" ", strip=True)
+    gorunmez_temizlenmis = metin.strip("​‌‍﻿ \t\n\r")
+    if not gorunmez_temizlenmis:
+        logging.warning(
+            "Resmi Gazete madde sayfasında metin bulunamadı (görünmez/boş içerik olabilir): %s",
+            url,
+        )
+        return None
+    return metin[:MAKS_METIN_KARAKTER]

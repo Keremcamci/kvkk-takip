@@ -264,7 +264,7 @@ def _uc_kaynak_pipeline_calistir(conn, client):
     with patch(
         "scrapers.resmi_gazete.fetch_veri",
         return_value=json.loads(RESMI_GAZETE_FIXTURE.read_text(encoding="utf-8")),
-    ):
+    ), patch("scrapers.resmi_gazete._madde_url_bul", return_value=None):
         resmi_gazete.scrape_and_store(conn)
     sonuc = classifier.classify_pending(
         conn, client=client, model="test-model", sleep_fn=lambda s: None
