@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from urllib.parse import urljoin
 
 import requests
+from bs4 import BeautifulSoup
 
 import db
 from scrapers import tammetin
@@ -77,6 +78,43 @@ def fetch_veri(url: str = RESMI_GAZETE_FILTER_URL, timeout: int = 15) -> dict:
     )
     response.raise_for_status()
     return response.json()
+
+
+def _normalize_baslik(metin: str) -> str:
+    kelimeler = metin.split()
+    while kelimeler and set(kelimeler[0]) <= set("–—-"):
+        kelimeler.pop(0)
+    return " ".join(kelimeler)
+
+
+def _fihrist_linkleri(tarih: str, timeout: int = 15) -> dict[str, str]:
+    fihrist_url = urljoin(RESMI_GAZETE_BASE_URL, f"/fihrist?tarih={tarih}")
+    try:
+        response = requests.get(
+            fihrist_url,
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+            verify=tammetin.guven_paketi(),
+        )
+        response.raise_for_status()
+    except (requests.RequestException, ConnectionError, OSError) as exc:
+        logging.warning("Resmi Gazete fihrist sayfası indirilemedi (%s): %s", fihrist_url, exc)
+        return {}
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    linkler: dict[str, str] = {}
+    for madde in soup.select("div.fihrist-item a"):
+        href = madde.get("href")
+        if not href:
+            continue
+        linkler[_normalize_baslik(madde.get_text())] = href
+    return linkler
+
+
+def _madde_url_bul(tarih: str, konu: str, fihrist_cache: dict) -> str | None:
+    if tarih not in fihrist_cache:
+        fihrist_cache[tarih] = _fihrist_linkleri(tarih)
+    return fihrist_cache[tarih].get(_normalize_baslik(konu))
 
 
 def scrape_and_store(conn, url: str = RESMI_GAZETE_FILTER_URL, limit: int = 10) -> int:
