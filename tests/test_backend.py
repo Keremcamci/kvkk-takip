@@ -332,3 +332,14 @@ def test_api_kararlar_429_response_includes_retry_after_header(monkeypatch, tmp_
         client.get("/api/kararlar")
     response = client.get("/api/kararlar")
     assert "Retry-After" in response.headers
+
+
+def test_index_route_is_not_rate_limited():
+    """`/` kasıtlı olarak rate limit'e tabi değil (bkz. spec — sadece
+    /api/kararlar). Bu özelliğin en doğal genişletme yolu, Limiter
+    constructor'ına default_limits eklemek olurdu — o an bu test kırılır
+    ve regresyonu yakalar."""
+    client = backend.app.test_client()
+    for _ in range(31):
+        response = client.get("/")
+        assert response.status_code == 200

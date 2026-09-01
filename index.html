@@ -151,6 +151,20 @@
       try {
         const res = await fetch(`/api/kararlar?profil=${encodeURIComponent(profil)}`);
         if (!res.ok) {
+          if (res.status === 429) {
+            let mesaj = "Çok fazla istek gönderildi. Lütfen biraz sonra tekrar deneyin.";
+            try {
+              const hataVerisi = await res.json();
+              if (hataVerisi && typeof hataVerisi.error === "string") {
+                mesaj = hataVerisi.error;
+              }
+            } catch {
+              // JSON parse edilemezse yukarıdaki varsayılan mesaj kullanılır.
+            }
+            const hata = new Error(mesaj);
+            hata.kullaniciyaGoster = true;
+            throw hata;
+          }
           throw new Error(`Sunucu hatası (${res.status})`);
         }
         const veri = await res.json();
@@ -171,9 +185,14 @@
         // önceki davranış yakalanmamış bir promise reddiydi — sayfa
         // sessizce eski/boş halinde kalırdı. Statik bir hata mesajı olsa
         // bile textContent kullanılır (diğer escaping bulgularıyla aynı
-        // disiplin).
+        // disiplin). Rate limit (429) hatası özel: sunucunun gönderdiği
+        // "biraz sonra tekrar dene" mesajı gösterilir — genel "sayfayı
+        // yenile" tavsiyesi bu durumda yanlıştır (yenilemek yeni bir
+        // istek daha yapar, durumu düzeltmez).
         console.error("Kararlar yüklenemedi:", err);
-        liste.textContent = "Kararlar yüklenemedi. Lütfen sayfayı yenileyin.";
+        liste.textContent = err.kullaniciyaGoster
+          ? err.message
+          : "Kararlar yüklenemedi. Lütfen sayfayı yenileyin.";
       }
     }
 
