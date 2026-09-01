@@ -295,14 +295,24 @@ def test_run_scrape_logs_traceback_for_failed_source(monkeypatch, tmp_path, capl
     assert kayit.getMessage() == "spk scrape başarısız: 'link'"
 
 
-def test_api_kararlar_allows_up_to_rate_limit():
+def test_api_kararlar_allows_up_to_rate_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_api_kararlar_rate_limit.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
     client = backend.app.test_client()
     for _ in range(30):
         response = client.get("/api/kararlar")
         assert response.status_code == 200
 
 
-def test_api_kararlar_returns_429_after_exceeding_rate_limit():
+def test_api_kararlar_returns_429_after_exceeding_rate_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_api_kararlar_429.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
     client = backend.app.test_client()
     for _ in range(30):
         client.get("/api/kararlar")
@@ -311,7 +321,12 @@ def test_api_kararlar_returns_429_after_exceeding_rate_limit():
     assert "error" in response.get_json()
 
 
-def test_api_kararlar_429_response_includes_retry_after_header():
+def test_api_kararlar_429_response_includes_retry_after_header(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_api_kararlar_retry_after.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
     client = backend.app.test_client()
     for _ in range(30):
         client.get("/api/kararlar")
