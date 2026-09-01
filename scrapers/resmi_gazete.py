@@ -120,8 +120,16 @@ def _madde_url_bul(tarih: str, konu: str, fihrist_cache: dict) -> str | None:
 def scrape_and_store(conn, url: str = RESMI_GAZETE_FILTER_URL, limit: int = 10) -> int:
     veri = fetch_veri(url)
     kararlar = parse_kararlar(veri)[:limit]
+    fihrist_cache: dict = {}
     yeni_sayisi = 0
     for karar in kararlar:
+        if db.karar_var_mi(conn, karar["kaynak_url"]):
+            continue
+        madde_url = _madde_url_bul(karar["tarih"], karar["baslik"], fihrist_cache)
+        if madde_url:
+            tam_metin = tammetin.resmi_gazete_madde_metni_cek(madde_url)
+            if tam_metin:
+                karar["ozet_ham"] = tam_metin
         if db.insert_karar_if_new(conn, kaynak="resmi_gazete", **karar):
             yeni_sayisi += 1
     return yeni_sayisi

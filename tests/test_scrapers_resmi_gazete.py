@@ -54,7 +54,7 @@ def test_fetch_veri_posts_json_body_and_returns_parsed_response():
 def test_scrape_and_store_inserts_new_kararlar(conn):
     with patch(
         "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
-    ):
+    ), patch("scrapers.resmi_gazete._madde_url_bul", return_value=None):
         yeni_sayisi = resmi_gazete.scrape_and_store(conn)
     assert yeni_sayisi == 3
     assert len(db.get_pending_kararlar(conn)) == 3
@@ -63,7 +63,7 @@ def test_scrape_and_store_inserts_new_kararlar(conn):
 def test_scrape_and_store_is_idempotent(conn):
     with patch(
         "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
-    ):
+    ), patch("scrapers.resmi_gazete._madde_url_bul", return_value=None):
         resmi_gazete.scrape_and_store(conn)
         ikinci_calistirma = resmi_gazete.scrape_and_store(conn)
     assert ikinci_calistirma == 0
@@ -72,7 +72,7 @@ def test_scrape_and_store_is_idempotent(conn):
 def test_scrape_and_store_respects_limit(conn):
     with patch(
         "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
-    ):
+    ), patch("scrapers.resmi_gazete._madde_url_bul", return_value=None):
         yeni_sayisi = resmi_gazete.scrape_and_store(conn, limit=1)
     assert yeni_sayisi == 1
 
@@ -213,3 +213,70 @@ def test_madde_url_bul_uses_cache_and_fetches_fihrist_only_once():
         resmi_gazete._madde_url_bul("2026-09-01", LISANSUSTU_BASLIK, cache)
         resmi_gazete._madde_url_bul("2026-09-01", ON_LISANS_BASLIK, cache)
     assert mock_get.call_count == 1
+
+
+def test_scrape_and_store_uses_full_text_when_madde_bulunur(conn):
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
+    ), patch(
+        "scrapers.resmi_gazete._madde_url_bul",
+        return_value="https://www.resmigazete.gov.tr/eskiler/2026/08/20260828-1.htm",
+    ), patch(
+        "scrapers.resmi_gazete.tammetin.resmi_gazete_madde_metni_cek",
+        return_value="Gerçek madde metni burada.",
+    ):
+        resmi_gazete.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == "Gerçek madde metni burada."
+
+
+def test_scrape_and_store_falls_back_to_title_when_madde_bulunamaz(conn):
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
+    ), patch("scrapers.resmi_gazete._madde_url_bul", return_value=None):
+        resmi_gazete.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == karar["baslik"]
+
+
+def test_scrape_and_store_falls_back_to_title_when_full_text_fetch_fails(conn):
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
+    ), patch(
+        "scrapers.resmi_gazete._madde_url_bul",
+        return_value="https://www.resmigazete.gov.tr/eskiler/2026/08/20260828-1.htm",
+    ), patch(
+        "scrapers.resmi_gazete.tammetin.resmi_gazete_madde_metni_cek", return_value=None
+    ):
+        resmi_gazete.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == karar["baslik"]
+
+
+def test_scrape_and_store_does_not_refetch_full_text_for_known_kararlar(conn):
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
+    ), patch(
+        "scrapers.resmi_gazete._madde_url_bul", return_value=None
+    ) as mock_madde_url_bul:
+        resmi_gazete.scrape_and_store(conn)
+        ilk_cagri_sayisi = mock_madde_url_bul.call_count
+        resmi_gazete.scrape_and_store(conn)
+        ikinci_cagri_sayisi = mock_madde_url_bul.call_count
+    assert ilk_cagri_sayisi == 3  # fixture'da 3 karar var
+    assert ikinci_cagri_sayisi == ilk_cagri_sayisi  # ikinci koşuda yeni çağrı yok
+
+
+def test_scrape_and_store_reuses_fihrist_cache_across_same_day_kararlar(conn):
+    """Fixture'daki 2026-08-29 tarihli 2 karar (Özel Hastaneler + Askeri
+    Yasak Bölge) aynı taramanın ömrü boyunca fihrist_cache'i paylaşmalı
+    — _fihrist_linkleri (ağ isteği) o gün için sadece BİR kez
+    tetiklenmeli."""
+    with patch(
+        "scrapers.resmi_gazete.fetch_veri", return_value=_fixture_veri()
+    ), patch(
+        "scrapers.resmi_gazete._fihrist_linkleri", return_value={}
+    ) as mock_fihrist_linkleri:
+        resmi_gazete.scrape_and_store(conn)
+    tarihler_cagrilan = [c.args[0] for c in mock_fihrist_linkleri.call_args_list]
+    assert tarihler_cagrilan.count("2026-08-29") == 1

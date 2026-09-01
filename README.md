@@ -74,13 +74,15 @@ sayfasının/API yanıtının ilk sayfası):
 Bir kaynağa erişilemezse diğerleri çalışmaya devam eder; hata `--scrape`
 çıktısında `logging.warning` ile (yığın iziyle birlikte) raporlanır.
 
-BDDK, KVKK ve SPK kararları artık (mümkün olduğunda) gerçek karar
-metninden sınıflandırılıyor — BDDK ve SPK için doğrudan PDF (SPK'nın
-"Dosya" sayfası bir React SPA kabuğu, ama sayfanın kendi arka plan
-çağrısı izlenerek bulunan düz bir REST API'den PDF doğrudan çekiliyor —
-headless tarayıcı gerekmiyor), KVKK için (kaynağa göre) kendi detay
-sayfasındaki özet veya PDF. Tam metin indirilemezse (ağ hatası,
-taranmış/görsel PDF, vb.) sessizce başlığa düşülür.
+BDDK, KVKK, SPK ve Resmi Gazete kararları artık (mümkün olduğunda)
+gerçek karar metninden sınıflandırılıyor — BDDK ve SPK için doğrudan
+PDF (SPK'nın "Dosya" sayfası bir React SPA kabuğu, ama sayfanın kendi
+arka plan çağrısı izlenerek bulunan düz bir REST API'den PDF doğrudan
+çekiliyor — headless tarayıcı gerekmiyor), KVKK için (kaynağa göre) kendi
+detay sayfasındaki özet veya PDF, Resmi Gazete için günün fihrist
+sayfasından başlık eşleştirmesiyle bulunan maddenin kendi sayfası. Tam
+metin indirilemezse (ağ hatası, eşleşme bulunamaması, taranmış/görsel
+PDF, vb.) sessizce başlığa düşülür.
 
 Bu tam metin indirme, sertifika zincirini eksik gönderen bazı siteler
 (BDDK, Resmi Gazete) için `scrapers/certs/*.pem` altında paketlenmiş
@@ -90,12 +92,8 @@ sessizce (hata vermeden, `logging.warning` ile) başlığa geri düşer — bu
 bir bakım kalemidir, kalıcı bir çözüm değildir; bundle'ın güncellenmesi
 gerekebilir.
 
-Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
-linki tek bir maddeye değil günün fihrist sayfasına gidiyor (bkz.
-aşağıdaki not).
-
-Kapsam dışı (ileriye dönük): Resmi Gazete için tam metin çıkarımı ve
-sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
+Kapsam dışı (ileriye dönük): Resmi Gazete için sayfalama — yani her
+kaynağın ilk sayfasından öteye gidilmiyor.
 
 Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK
 kararlarının çoğu doğal olarak `finans` etiketi alır. Bu yüzden varsayılan
