@@ -2,6 +2,7 @@ import socket
 
 import pytest
 
+import backend
 import db
 
 
@@ -36,3 +37,26 @@ def gercek_aga_cikisi_engelle():
         yield
     finally:
         socket.socket.connect = orijinal_connect
+
+
+@pytest.fixture(autouse=True)
+def db_setup(monkeypatch, tmp_path):
+    """Her test için geçici bir veritabanı kur. Testler gerçek kvkk.db'ye
+    değil, izole bir tmp_path veritabanına karşı çalışır."""
+    db_path = tmp_path / "test_kvkk.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def limiter_sifirla():
+    """Flask-Limiter'ın rate-limit state'i process boyunca (tek `app`
+    singleton'ında) kalıcıdır. Rate-limit testi limiti bilerek aşacağı
+    için, bu state sıfırlanmazsa diğer /api/kararlar testlerine sızıp
+    onları da 429'a düşürebilir — test sırasına bağlı, kırılgan bir hata
+    sınıfı. Her testten önce sayaçları sıfırlamak bunu önler."""
+    backend.limiter.reset()
+    yield
