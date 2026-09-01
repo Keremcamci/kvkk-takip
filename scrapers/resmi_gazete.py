@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from urllib.parse import urljoin
 
 import requests
+from bs4 import BeautifulSoup
 
 import db
 from scrapers import tammetin
@@ -79,11 +80,79 @@ def fetch_veri(url: str = RESMI_GAZETE_FILTER_URL, timeout: int = 15) -> dict:
     return response.json()
 
 
+def _normalize_baslik(metin: str) -> str:
+    kelimeler = metin.split()
+    while kelimeler and set(kelimeler[0]) <= set("–—-"):
+        kelimeler.pop(0)
+    return " ".join(kelimeler)
+
+
+def _fihrist_linkleri(fihrist_url: str, timeout: int = 15) -> dict[str, str]:
+    try:
+        response = requests.get(
+            fihrist_url,
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+            verify=tammetin.guven_paketi(),
+        )
+        response.raise_for_status()
+    except (requests.RequestException, ConnectionError, OSError) as exc:
+        logging.warning("Resmi Gazete fihrist sayfası indirilemedi (%s): %s", fihrist_url, exc)
+        return {}
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    linkler: dict[str, str] = {}
+    cakisan_basliklar: set[str] = set()
+    for madde in soup.select("div.fihrist-item a"):
+        href = madde.get("href")
+        if not href:
+            continue
+        baslik = _normalize_baslik(madde.get_text())
+        if baslik in cakisan_basliklar:
+            continue
+        if baslik in linkler:
+            # Aynı günün fihristinde aynı başlık birden fazla kez geçiyor —
+            # hangi maddeye ait olduğu belirsiz, yanlış maddeyi eşleştirmektense
+            # hiç eşleştirmemek (başlığa düşmek) tercih edilir.
+            del linkler[baslik]
+            cakisan_basliklar.add(baslik)
+            logging.warning(
+                "Resmi Gazete fihristinde mükerrer başlık, eşleştirme atlanıyor (%s): %s",
+                fihrist_url, baslik,
+            )
+            continue
+        linkler[baslik] = href
+
+    if not linkler:
+        logging.warning("Resmi Gazete fihrist sayfasında madde linki bulunamadı: %s", fihrist_url)
+    return linkler
+
+
+def _madde_url_bul(fihrist_url: str, konu: str, fihrist_cache: dict) -> str | None:
+    if fihrist_url not in fihrist_cache:
+        fihrist_cache[fihrist_url] = _fihrist_linkleri(fihrist_url)
+    madde_url = fihrist_cache[fihrist_url].get(_normalize_baslik(konu))
+    if madde_url is None:
+        logging.warning(
+            "Resmi Gazete fihristinde başlık eşleşmedi (%s): %s", fihrist_url, konu
+        )
+    return madde_url
+
+
 def scrape_and_store(conn, url: str = RESMI_GAZETE_FILTER_URL, limit: int = 10) -> int:
     veri = fetch_veri(url)
     kararlar = parse_kararlar(veri)[:limit]
+    fihrist_cache: dict = {}
     yeni_sayisi = 0
     for karar in kararlar:
+        if db.karar_var_mi(conn, karar["kaynak_url"]):
+            continue
+        fihrist_url = karar["kaynak_url"].split("#", 1)[0]
+        madde_url = _madde_url_bul(fihrist_url, karar["baslik"], fihrist_cache)
+        if madde_url:
+            tam_metin = tammetin.resmi_gazete_madde_metni_cek(madde_url)
+            if tam_metin:
+                karar["ozet_ham"] = tam_metin
         if db.insert_karar_if_new(conn, kaynak="resmi_gazete", **karar):
             yeni_sayisi += 1
     return yeni_sayisi

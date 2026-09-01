@@ -262,3 +262,79 @@ def test_guven_paketi_falls_back_to_certifi_when_no_env_var_set(monkeypatch):
         assert certifi_icerik in icerik
     finally:
         tammetin.guven_paketi_yolu = onceki_deger
+
+
+def test_resmi_gazete_madde_metni_cek_extracts_and_decodes_windows1254():
+    html = (
+        "<html><body><div class=Section1>"
+        "MADDE 1- Türkçe karakterler doğru gösterilmeli: ışığöüç"
+        "</div></body></html>"
+    )
+    fake = Mock()
+    fake.content = html.encode("windows-1254")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
+        metin = tammetin.resmi_gazete_madde_metni_cek(
+            "https://www.resmigazete.gov.tr/eskiler/2026/09/20260901-1.htm"
+        )
+    assert metin is not None
+    assert "ışığöüç" in metin
+
+
+def test_resmi_gazete_madde_metni_cek_falls_back_to_body_when_section1_missing():
+    html = "<html><body>MADDE 1- İçerik burada.</body></html>"
+    fake = Mock()
+    fake.content = html.encode("windows-1254")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
+        metin = tammetin.resmi_gazete_madde_metni_cek("https://example.com/madde.htm")
+    assert metin == "MADDE 1- İçerik burada."
+
+
+def test_resmi_gazete_madde_metni_cek_returns_none_on_network_error(caplog):
+    with patch("scrapers.tammetin.requests.get", side_effect=ConnectionError("zaman aşımı")):
+        with caplog.at_level(logging.WARNING):
+            metin = tammetin.resmi_gazete_madde_metni_cek(
+                "https://www.resmigazete.gov.tr/eskiler/2026/09/x.htm"
+            )
+    assert metin is None
+    assert "indirilemedi" in caplog.text
+
+
+def test_resmi_gazete_madde_metni_cek_returns_none_for_whitespace_only_content(caplog):
+    # NOT: KVKK'nın "görünmez Unicode karakter" testinin eşi burada
+    # uygulanamaz — bu sayfalar sabit tek baytlık windows-1254 kodlamalı
+    # olduğu için U+200B gibi çok baytlı karakterleri hiç temsil edemez.
+    # Windows-1254'te temsil edilebilen "boş içerik" senaryosu düz
+    # boşluk/tab/newline'dır, bu test onu kapsıyor.
+    html = "<html><body><div class=Section1>   \r\n\t  </div></body></html>"
+    fake = Mock()
+    fake.content = html.encode("windows-1254")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
+        with caplog.at_level(logging.WARNING):
+            metin = tammetin.resmi_gazete_madde_metni_cek("https://example.com/x.htm")
+    assert metin is None
+    assert "bulunamadı" in caplog.text
+
+
+def test_resmi_gazete_madde_metni_cek_truncates_to_max_length():
+    uzun_metin = "a" * (tammetin.MAKS_METIN_KARAKTER + 500)
+    html = f"<html><body><div class=Section1>{uzun_metin}</div></body></html>"
+    fake = Mock()
+    fake.content = html.encode("windows-1254")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake):
+        metin = tammetin.resmi_gazete_madde_metni_cek("https://example.com/x.htm")
+    assert len(metin) == tammetin.MAKS_METIN_KARAKTER
+
+
+def test_resmi_gazete_madde_metni_cek_passes_guven_paketi_to_requests():
+    html = "<html><body><div class=Section1>MADDE 1- İçerik.</div></body></html>"
+    fake = Mock()
+    fake.content = html.encode("windows-1254")
+    fake.raise_for_status = Mock()
+    with patch("scrapers.tammetin.requests.get", return_value=fake) as mock_get:
+        tammetin.resmi_gazete_madde_metni_cek("https://example.com/x.htm")
+    _, kwargs = mock_get.call_args
+    assert kwargs["verify"] == tammetin.guven_paketi()
