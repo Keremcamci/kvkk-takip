@@ -74,10 +74,13 @@ sayfasının/API yanıtının ilk sayfası):
 Bir kaynağa erişilemezse diğerleri çalışmaya devam eder; hata `--scrape`
 çıktısında `logging.warning` ile (yığın iziyle birlikte) raporlanır.
 
-BDDK ve KVKK kararları artık (mümkün olduğunda) gerçek karar metninden
-sınıflandırılıyor — BDDK için doğrudan PDF, KVKK için (kaynağa göre)
-kendi detay sayfasındaki özet veya PDF. Tam metin indirilemezse (ağ
-hatası, taranmış/görsel PDF, vb.) sessizce başlığa düşülür.
+BDDK, KVKK ve SPK kararları artık (mümkün olduğunda) gerçek karar
+metninden sınıflandırılıyor — BDDK ve SPK için doğrudan PDF (SPK'nın
+"Dosya" sayfası bir React SPA kabuğu, ama sayfanın kendi arka plan
+çağrısı izlenerek bulunan düz bir REST API'den PDF doğrudan çekiliyor —
+headless tarayıcı gerekmiyor), KVKK için (kaynağa göre) kendi detay
+sayfasındaki özet veya PDF. Tam metin indirilemezse (ağ hatası,
+taranmış/görsel PDF, vb.) sessizce başlığa düşülür.
 
 Bu tam metin indirme, sertifika zincirini eksik gönderen bazı siteler
 (BDDK, Resmi Gazete) için `scrapers/certs/*.pem` altında paketlenmiş
@@ -87,12 +90,11 @@ sessizce (hata vermeden, `logging.warning` ile) başlığa geri düşer — bu
 bir bakım kalemidir, kalıcı bir çözüm değildir; bundle'ın güncellenmesi
 gerekebilir.
 
-SPK ve Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
-SPK'nın "Dosya" linki JavaScript ile render edilen bir sayfa (düz bir
-HTTP isteğiyle içeriğe ulaşılamıyor); Resmi Gazete'nin linki tek bir
-maddeye değil günün fihrist sayfasına gidiyor (bkz. aşağıdaki not).
+Resmi Gazete kararları hâlâ yalnızca başlıktan sınıflandırılıyor:
+linki tek bir maddeye değil günün fihrist sayfasına gidiyor (bkz.
+aşağıdaki not).
 
-Kapsam dışı (ileriye dönük): SPK/Resmi Gazete için tam metin çıkarımı ve
+Kapsam dışı (ileriye dönük): Resmi Gazete için tam metin çıkarımı ve
 sayfalama — yani her kaynağın ilk sayfasından öteye gidilmiyor.
 
 Not: Arayüzdeki profil filtresi kararları etikete göre süzer; BDDK ve SPK

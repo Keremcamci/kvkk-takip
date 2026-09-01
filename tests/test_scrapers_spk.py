@@ -12,6 +12,26 @@ def _fixture_veri() -> list[dict]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def test_dosya_api_yolu_builds_url_from_content_source_and_id():
+    item = {"contentSource": "IlkeKarari", "contentID": 377}
+    assert spk._dosya_api_yolu(item) == "api/IlkeKarari/File/377"
+
+
+def test_dosya_api_yolu_returns_none_when_content_source_missing():
+    item = {"contentID": 377}
+    assert spk._dosya_api_yolu(item) is None
+
+
+def test_dosya_api_yolu_returns_none_when_content_id_missing():
+    item = {"contentSource": "IlkeKarari"}
+    assert spk._dosya_api_yolu(item) is None
+
+
+def test_dosya_api_yolu_returns_none_when_content_id_is_empty_string():
+    item = {"contentSource": "IlkeKarari", "contentID": ""}
+    assert spk._dosya_api_yolu(item) is None
+
+
 def test_parse_kararlar_filters_out_non_karar_types():
     kararlar = spk.parse_kararlar(_fixture_veri())
     # Fixture'da 3 kayıt var: İlke Kararı, Kurul Kararı, Tebliğ.
@@ -26,7 +46,7 @@ def test_parse_kararlar_sorts_newest_first_and_maps_fields():
     assert ilk["tarih"] == "2026-08-27"
     assert "i-SPK 128.30" in ilk["baslik"]
     assert ilk["ozet_ham"] == ilk["baslik"]
-    assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377"
+    assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/api/IlkeKarari/File/377"
 
     ikinci = kararlar[1]
     assert ikinci["tarih"] == "2026-08-13"
@@ -45,21 +65,24 @@ def test_fetch_veri_returns_parsed_json():
 
 
 def test_scrape_and_store_inserts_new_kararlar(conn):
-    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         yeni_sayisi = spk.scrape_and_store(conn)
     assert yeni_sayisi == 2  # Tebliğ elenmiş olmalı
     assert len(db.get_pending_kararlar(conn)) == 2
 
 
 def test_scrape_and_store_is_idempotent(conn):
-    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         spk.scrape_and_store(conn)
         ikinci_calistirma = spk.scrape_and_store(conn)
     assert ikinci_calistirma == 0
 
 
 def test_scrape_and_store_respects_limit(conn):
-    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
         yeni_sayisi = spk.scrape_and_store(conn, limit=1)
     assert yeni_sayisi == 1
 
@@ -92,3 +115,75 @@ def test_parse_kararlar_skips_record_missing_link_instead_of_raising(caplog):
     assert len(kararlar) == 1  # sadece "İlke Kararı" olan ilk kayıt kaldı
     assert kararlar[0]["tarih"] == "2026-08-27"
     assert "link" in caplog.text
+
+
+def test_parse_kararlar_falls_back_to_raw_link_when_content_fields_missing():
+    veri = _fixture_veri()
+    del veri[0]["contentSource"]
+    kararlar = spk.parse_kararlar(veri)
+    ilk = next(k for k in kararlar if "i-SPK 128.30" in k["baslik"])
+    assert ilk["kaynak_url"] == "https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377"
+
+
+def test_scrape_and_store_uses_full_text_when_pdf_extraction_succeeds(conn):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value="Gerçek karar metni burada.") as mock_pdf:
+        spk.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == "Gerçek karar metni burada."
+    mock_pdf.assert_any_call("https://mevzuat.spk.gov.tr/api/IlkeKarari/File/377")
+
+
+def test_scrape_and_store_falls_back_to_title_when_pdf_extraction_fails(conn):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
+        spk.scrape_and_store(conn, limit=1)
+    karar = db.get_pending_kararlar(conn)[0]
+    assert karar["ozet_ham"] == karar["baslik"]
+
+
+def test_scrape_and_store_does_not_refetch_full_text_for_known_kararlar(conn):
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None) as mock_pdf:
+        spk.scrape_and_store(conn)
+        ilk_cagri_sayisi = mock_pdf.call_count
+        spk.scrape_and_store(conn)
+        ikinci_cagri_sayisi = mock_pdf.call_count
+    assert ilk_cagri_sayisi == 2  # fixture'da 2 geçerli tür var (Tebliğ elenir)
+    assert ikinci_cagri_sayisi == ilk_cagri_sayisi  # ikinci koşuda yeni çağrı yok
+
+
+def test_scrape_and_store_does_not_duplicate_kararlar_with_old_url_scheme(conn):
+    """Bu branch öncesi taranmış bir DB'de SPK kararları eski URL
+    şemasıyla (SPA sayfası) kayıtlıydı. db.init_db()'nin migrasyonu
+    çalışmazsa, bu test scrape_and_store'un aynı kararı YENİ url ile
+    ikinci kez eklediğini (çiftlenme) gösterirdi."""
+    conn.execute(
+        "INSERT INTO kararlar (kaynak, baslik, tarih, kaynak_url, ozet_ham, islendi_mi) "
+        "VALUES ('spk', "
+        "'Kurul Karar Organı’nın i-SPK 128.30 (27/08/2026 Tarihli ve 51/1568 S.K.) Sayılı İlke Kararı', "
+        "'2026-08-27', 'https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377', 'x', 1)"
+    )
+    conn.commit()
+    db.init_db(conn)  # migrasyon burada tetiklenir — gerçek akışta backend.py bunu her --scrape'ten önce zaten çağırıyor
+    with patch("scrapers.spk.fetch_veri", return_value=_fixture_veri()), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None):
+        spk.scrape_and_store(conn)
+    toplam = conn.execute(
+        "SELECT COUNT(*) AS n FROM kararlar WHERE kaynak = 'spk'"
+    ).fetchone()["n"]
+    assert toplam == 2  # fixture'da 2 geçerli tür var (Tebliğ elenir); migrasyon çalışmışsa çiftlenme olmaz
+
+
+def test_scrape_and_store_falls_back_to_spa_url_when_content_fields_missing(conn):
+    veri = _fixture_veri()
+    del veri[0]["contentSource"]
+    with patch("scrapers.spk.fetch_veri", return_value=veri), \
+         patch("scrapers.spk.tammetin.pdf_metni_cek", return_value=None) as mock_pdf:
+        spk.scrape_and_store(conn)
+    ilk = next(k for k in db.get_pending_kararlar(conn) if "i-SPK 128.30" in k["baslik"])
+    row = conn.execute(
+        "SELECT kaynak_url FROM kararlar WHERE id = ?", (ilk["id"],)
+    ).fetchone()
+    assert row["kaynak_url"] == "https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377"
+    mock_pdf.assert_any_call("https://mevzuat.spk.gov.tr/IlkeKarari/Dosya/377")
