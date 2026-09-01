@@ -54,9 +54,17 @@ def _spk_url_semasini_guncelle(conn: sqlite3.Connection) -> None:
     kaynak_url UNIQUE olduğu için sonraki bir --scrape aynı kararları
     yeni URL'de "yeni" sanıp ikinci kez ekler (çiftlenme + gereksiz LLM
     yeniden sınıflandırması). Bu migrasyon idempotent'tir: eski şemalı
-    satır yoksa hiçbir şey yapmaz, tekrar çağrılması güvenlidir."""
+    satır yoksa hiçbir şey yapmaz, tekrar çağrılması güvenlidir.
+
+    OR IGNORE: aynı karar için hem eski hem yeni şemalı satır DB'de zaten
+    aynı anda varsa (örn. migrasyon çalışmadan önce kısmi bir --scrape
+    yeni şemalı satırı eklemişse), düz UPDATE hedef URL'nin UNIQUE
+    kısıtlamasına çarpıp IntegrityError fırlatır ve init_db()'yi çağıran
+    her şeyi (--scrape, --reset-failed, web sunucusu başlangıcı) bricker.
+    OR IGNORE bu satırı olduğu gibi (çiftlenmiş ama zararsız) bırakıp
+    çökmeden devam eder."""
     conn.execute(
-        "UPDATE kararlar SET kaynak_url = replace(kaynak_url, "
+        "UPDATE OR IGNORE kararlar SET kaynak_url = replace(kaynak_url, "
         "'/IlkeKarari/Dosya/', '/api/IlkeKarari/File/') "
         "WHERE kaynak = 'spk' AND kaynak_url LIKE '%/IlkeKarari/Dosya/%'"
     )
