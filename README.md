@@ -34,6 +34,16 @@ Not: `--scrape` artık tam metin çıkarımı yüzünden öncekinden belirgin
 sıralı indirmeler) — sıkı bir timeout'a sahip bir cron job kullanıyorsanız
 bunu göz önünde bulundurun.
 
+Not: `/api/kararlar` endpoint'i IP başına dakikada 30 istekle sınırlıdır
+(kötüye kullanımı/döngüsel isteği önlemek için). Limit aşılırsa `429`
+durum kodu ve `Retry-After` header'ı dönülür; arayüz bunu otomatik
+gösterir. Bilinen sınırlamalar: reverse proxy arkasında çalıştırılırsa
+(nginx/Caddy) tüm istemciler proxy'nin IP'sinden görüneceği için limit
+paylaşılan tek bir kotaya döner; birden fazla worker process ile
+çalıştırılırsa (ör. `gunicorn -w 4`) her worker kendi sayacını tutar ve
+efektif limit `30 × worker sayısı` olur. Bu MVP'nin kapsamı tek-process
+yerel kullanım, bu sınırlamalar bilinçli olarak çözülmedi.
+
 ### Kalıcı hatalardan kurtarma
 
 Bir karar üst üste 3 kez sınıflandırılamazsa (örn. `.env` içindeki

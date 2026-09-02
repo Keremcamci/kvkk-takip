@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import classifier
 import db
@@ -14,6 +16,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://", headers_enabled=True)
 
 GECERLI_PROFILLER = {"genel", "e-ticaret", "finans", "saglik", "egitim"}
 
@@ -39,6 +42,11 @@ def _guvenlik_basliklari_ekle(response):
     return response
 
 
+@app.errorhandler(429)
+def _rate_limit_asildi(e):
+    return jsonify({"error": "Çok fazla istek gönderildi. Lütfen biraz sonra tekrar deneyin."}), 429
+
+
 @app.route("/")
 def index():
     g.csp_nonce = secrets.token_urlsafe(16)
@@ -49,6 +57,7 @@ def index():
 
 
 @app.route("/api/kararlar")
+@limiter.limit("30 per minute")
 def api_kararlar():
     profil = request.args.get("profil", "genel")
     if profil not in GECERLI_PROFILLER:

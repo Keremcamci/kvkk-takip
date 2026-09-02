@@ -378,11 +378,49 @@ def test_source_yukle_catch_block_shows_safe_error_via_textContent():
     """Hata mesajı innerHTML DEĞİL textContent ile yazılmalı — diğer kaçırma
     (escaping) bulgularıyla aynı disiplin: statik bir dizeyse bile
     textContent kullanmak bu satırı gelecekteki değişikliklere karşı da
-    güvenli tutar."""
+    güvenli tutar.
+
+    rsplit kullanılır (split değil): 429 dalı artık kendi iç try/catch'ini
+    içeriyor (res.json() parse hatası için), yani "} catch" fonksiyon
+    içinde artık İKİ kez geçiyor. DIŞ (asıl) catch bloğu her zaman SONUNCU
+    "} catch" — bu yüzden en sondan bölmek gerekir."""
     yukle_kaynagi = _js_fonksiyonu(_kaynak(), "yukle")
-    catch_govdesi = yukle_kaynagi.split("} catch", 1)[1]
+    catch_govdesi = yukle_kaynagi.rsplit("} catch", 1)[1]
     assert "liste.textContent" in catch_govdesi
     assert "liste.innerHTML" not in catch_govdesi
+
+
+@node_gerekli
+def test_yukle_shows_backend_429_message_not_generic_reload_advice():
+    """Bulgu: önceki davranışta `!res.ok` her zaman aynı statik "sayfayı
+    yenile" mesajını üretiyordu — 429 (rate limit) için bu YANLIŞ tavsiye:
+    yenilemek yeni bir istek daha yapar, durumu düzeltmez. Backend zaten
+    JSON gövdesinde Türkçe bir mesaj gönderiyor (`{"error": "..."}"`); bu
+    test, `yukle()`nin gerçekten bu mesajı okuyup kullanıcıya gösterdiğini
+    (statik mesaj yerine) kanıtlar — `fetch` ve DOM elemanları mock'lanıp
+    fonksiyon node ile GERÇEKTEN çalıştırılır."""
+    # _js_fonksiyonu, arama "function <ad>(" dizesiyle başladığı için önündeki
+    # "async " anahtar kelimesini dahil etmez (bu yardımcı fonksiyon şimdiye
+    # kadar hep senkron fonksiyonlar için kullanıldı) — burada elle eklenir.
+    yukle_kaynagi = "async " + _js_fonksiyonu(_kaynak(), "yukle")
+    script = f"""
+{yukle_kaynagi}
+const profilSelect = {{ value: "genel" }};
+const liste = {{ innerHTML: "", textContent: "" }};
+const sonGuncellemeEl = {{ textContent: "" }};
+const kaynakOzetEl = {{ textContent: "" }};
+globalThis.fetch = async () => ({{
+  ok: false,
+  status: 429,
+  json: async () => ({{ error: "test mesajı" }}),
+}});
+yukle().then(() => {{
+  console.log(JSON.stringify(liste.textContent));
+}});
+"""
+    sonuc = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+    assert sonuc.returncode == 0, f"node hatası: {sonuc.stderr}"
+    assert json.loads(sonuc.stdout) == "test mesajı"
 
 
 @node_gerekli

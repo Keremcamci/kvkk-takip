@@ -293,3 +293,53 @@ def test_run_scrape_logs_traceback_for_failed_source(monkeypatch, tmp_path, capl
     # Biçimlenmiş MESAJ metni değişmemeli (exc_info yalnızca traceback ekler),
     # yani mevcut mesaj tabanlı testler bundan etkilenmez.
     assert kayit.getMessage() == "spk scrape başarısız: 'link'"
+
+
+def test_api_kararlar_allows_up_to_rate_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_api_kararlar_rate_limit.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
+    client = backend.app.test_client()
+    for _ in range(30):
+        response = client.get("/api/kararlar")
+        assert response.status_code == 200
+
+
+def test_api_kararlar_returns_429_after_exceeding_rate_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_api_kararlar_429.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
+    client = backend.app.test_client()
+    for _ in range(30):
+        client.get("/api/kararlar")
+    response = client.get("/api/kararlar")
+    assert response.status_code == 429
+    assert "error" in response.get_json()
+
+
+def test_api_kararlar_429_response_includes_retry_after_header(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_api_kararlar_retry_after.db")
+    conn = db.get_connection()
+    db.init_db(conn)
+    conn.close()
+
+    client = backend.app.test_client()
+    for _ in range(30):
+        client.get("/api/kararlar")
+    response = client.get("/api/kararlar")
+    assert "Retry-After" in response.headers
+
+
+def test_index_route_is_not_rate_limited():
+    """`/` kasıtlı olarak rate limit'e tabi değil (bkz. spec — sadece
+    /api/kararlar). Bu özelliğin en doğal genişletme yolu, Limiter
+    constructor'ına default_limits eklemek olurdu — o an bu test kırılır
+    ve regresyonu yakalar."""
+    client = backend.app.test_client()
+    for _ in range(31):
+        response = client.get("/")
+        assert response.status_code == 200
